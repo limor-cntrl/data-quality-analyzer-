@@ -1,0 +1,9 @@
+customer_id,customer_name,email,segment,region
+CUST-10,Acme Corp,acme@corp.com,Enterprise,North
+CUST-11,Beta Ltd,beta@ltd.com,SMB,South
+CUST-12,Acme Corporation,acme@corporation.com,Enterprise,North
+CUST-13,Gamma Inc,gamma@inc.com,SMB,East
+CUST-14,Delta Systems,delta@sys.com,Mid-Market,West
+CUST-15,Epsilon Tech,eps@tech.com,Enterprise,North
+CUST-16,Zeta Group,zeta@grp.com,SMB,South
+CUST-10B,Acme Corp,acme@corp.com,Enterprise,North
