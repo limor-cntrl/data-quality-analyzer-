@@ -261,34 +261,6 @@ DIMS = [
 ]
 
 
-def make_gauge(score: float) -> go.Figure:
-    c = score_color(score)
-    fig = go.Figure(go.Indicator(
-        mode="gauge+number",
-        value=score,
-        number={"font": {"size": 60, "color": c, "family": "JetBrains Mono"}, "suffix": ""},
-        gauge={
-            "axis": {"range": [0, 100], "tickwidth": 1,
-                     "tickcolor": "#30363D", "tickfont": {"color": "#6E7681", "size": 10}},
-            "bar":  {"color": c, "thickness": 0.2},
-            "bgcolor": "#0D1117", "borderwidth": 0,
-            "steps": [
-                {"range": [0,  50], "color": "#1a0808"},
-                {"range": [50, 65], "color": "#1a1000"},
-                {"range": [65, 75], "color": "#1a1500"},
-                {"range": [75, 85], "color": "#0a1a0a"},
-                {"range": [85,100], "color": "#051a10"},
-            ],
-            "threshold": {"line": {"color": c, "width": 3}, "thickness": 0.8, "value": score},
-        },
-    ))
-    fig.update_layout(
-        height=260, margin=dict(t=20, b=10, l=10, r=10),
-        paper_bgcolor="#161B22", plot_bgcolor="#161B22",
-        font={"family": "Inter"},
-    )
-    return fig
-
 
 def make_flow_map(dfs, joins, orphan_result, gap_result) -> go.Figure:
     names = list(dfs.keys())
@@ -634,13 +606,7 @@ def render_data_preview(dfs: dict, joins: list):
 # Column profiler
 # ─────────────────────────────────────────────────────────────────────────────
 
-COL_ICONS = {
-    "id": "🔑", "monetary": "💰", "temporal": "📅",
-    "status": "🏷", "personal": "👤", "geographic": "🌍",
-    "quantity": "🔢", "other": "📊",
-}
-
-def profile_columns(df: pd.DataFrame) -> list:
+def _unused_profile_columns(df: pd.DataFrame) -> list:  # kept for reference, not called
     """Generate a rich profile for every column."""
     col_types = classify_columns(df)
     profiles  = []
@@ -708,102 +674,141 @@ def profile_columns(df: pd.DataFrame) -> list:
     return profiles
 
 
-def render_column_profiler(dfs: dict):
-    """Render a column-level profiler for each file."""
-    st.markdown('<hr class="dq-divider">', unsafe_allow_html=True)
-    st.markdown("""
-    <div class="section-header">Column Intelligence</div>
-    <div class="section-title">Column-Level Profile</div>
-    <div class="section-sub">
-      Data type, fill rate, distribution, and quality score for every column in your data.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Score reveal — the verdict
+# ─────────────────────────────────────────────────────────────────────────────
+
+def render_score_reveal(R: dict):
+    """Full-width verdict card — the first thing after analysis completes."""
+    scores  = R["score_data"]["scores"]
+    details = R["score_data"]["details"]
+    weights = R["score_data"]["weights"]
+    overall = scores["overall"]
+    grade, gc = overall_grade(overall)
+    lbl, _    = score_label(overall)
+    bench     = details.get("benchmark", "")
+    urgency   = details.get("urgency", "")
+
+    n_orphans  = sum(f["orphan_count"]    for f in R["orphans"].get("findings", []))
+    n_dupes    = sum(f["duplicate_count"] for f in R["dupes"].get("findings", []))
+    n_gaps     = sum(f["missing_count"]   for f in R["gaps"].get("findings", []))
+    rows_total = sum(len(df) for df in R["dfs"].values())
+
+    def stat_pill(val, label, color):
+        return (
+            f'<div style="flex:1;min-width:110px;text-align:center;background:#0D1117;'
+            f'border:1px solid {color}44;border-radius:10px;padding:14px 8px">'
+            f'<div style="font-size:26px;font-weight:900;color:{color};'
+            f'font-family:\'JetBrains Mono\',monospace">{val}</div>'
+            f'<div style="font-size:11px;color:#6E7681;margin-top:3px">{label}</div>'
+            f'</div>'
+        )
+
+    orphan_c = "#F85149" if n_orphans > 0 else "#3FB950"
+    dup_c    = "#F85149" if n_dupes   > 0 else "#3FB950"
+    gap_c    = "#E3B341" if n_gaps    > 0 else "#3FB950"
+
+    stats_html = (
+        f'<div style="display:flex;gap:10px;margin-top:28px;flex-wrap:wrap">'
+        f'{stat_pill(f"{n_orphans:,}", "orphan records", orphan_c)}'
+        f'{stat_pill(str(n_dupes), "duplicate entities", dup_c)}'
+        f'{stat_pill(f"{n_gaps:,}", "pipeline gaps", gap_c)}'
+        f'{stat_pill(f"{rows_total:,}", "rows analyzed", "#58A6FF")}'
+        f'</div>'
+    )
+
+    # Build dimension bars inline
+    dim_rows = []
+    for key, label, _ in DIMS:
+        val  = scores.get(key)
+        w    = weights.get(key, 0)
+        c    = score_color(val)
+        ld, _ = score_label(val)
+        pct  = val if val is not None else 0
+        vs   = f"{val:.0f}" if val is not None else "N/A"
+        ws   = f"{int(w*100)}%"
+        dim_rows.append(f"""
+        <div style="margin-bottom:13px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:5px">
+            <div>
+              <span style="font-size:12px;font-weight:600;color:#C9D1D9">{label}</span>
+              <span style="font-size:10px;color:#484F58;margin-left:6px">{ws} weight</span>
+            </div>
+            <span style="font-size:12px;font-weight:700;color:{c};font-family:'JetBrains Mono',monospace">
+              {vs} <span style="font-size:10px;font-weight:500">{ld}</span>
+            </span>
+          </div>
+          <div style="background:#21262D;border-radius:999px;height:7px;overflow:hidden">
+            <div style="width:{pct}%;background:{c};height:7px;border-radius:999px"></div>
+          </div>
+        </div>""")
+
+    penalty = details.get("integration_penalty", 0)
+    penalty_note = (
+        f'<div style="font-size:11px;color:#484F58;margin-top:6px">'
+        f'⚠ −{penalty} integration complexity penalty applied</div>'
+        if penalty > 0 else ""
+    )
+
+    st.markdown(f"""
+    <style>
+    @keyframes gradeIn {{
+      from {{ opacity:0; transform:scale(0.55) rotate(-6deg); }}
+      to   {{ opacity:1; transform:scale(1)    rotate(0deg);  }}
+    }}
+    .grade-anim {{ animation: gradeIn 0.6s cubic-bezier(0.34,1.56,0.64,1) both; }}
+    </style>
+    <div style="background:linear-gradient(135deg,#010409 0%,#0D1117 55%,#161B22 100%);
+                border:1px solid {gc};border-radius:16px;padding:40px 44px 36px;
+                margin-bottom:28px;position:relative;overflow:hidden;
+                box-shadow:0 0 60px {gc}18">
+      <div style="position:absolute;top:0;left:0;right:0;height:4px;
+                  background:linear-gradient(90deg,{gc},{gc}66);
+                  border-radius:16px 16px 0 0"></div>
+      <div style="font-size:11px;font-weight:700;letter-spacing:2px;
+                  text-transform:uppercase;color:{gc};margin-bottom:22px">
+        🔬 Diagnostic Result
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:40px;flex-wrap:wrap">
+
+        <!-- Grade letter -->
+        <div class="grade-anim"
+             style="font-size:128px;font-weight:900;line-height:1;flex-shrink:0;
+                    color:{gc};font-family:'JetBrains Mono',monospace;
+                    text-shadow:0 0 80px {gc}55">
+          {grade}
+        </div>
+
+        <!-- Score + verdict -->
+        <div style="flex:1;min-width:200px">
+          <div style="font-size:54px;font-weight:900;color:#E6EDF3;
+                      font-family:'JetBrains Mono',monospace;line-height:1">
+            {overall}
+            <span style="font-size:22px;color:#484F58;font-weight:400"> / 100</span>
+          </div>
+          <div style="font-size:17px;font-weight:700;color:{gc};margin-top:6px">{lbl}</div>
+          <div style="display:inline-block;background:#21262D;border:1px solid #30363D;
+                      border-radius:999px;padding:4px 16px;font-size:12px;color:#8B949E;
+                      margin-top:10px">{bench}</div>
+          <div style="font-size:13px;color:#C9D1D9;font-weight:600;margin-top:14px;
+                      line-height:1.6;max-width:380px">{urgency}</div>
+        </div>
+
+        <!-- Dimension bars -->
+        <div style="flex:1;min-width:260px;border-left:1px solid #21262D;padding-left:32px">
+          <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;
+                      text-transform:uppercase;color:#484F58;margin-bottom:14px">
+            Score by dimension
+          </div>
+          {''.join(dim_rows)}
+          {penalty_note}
+        </div>
+
+      </div>
+      {stats_html}
     </div>
     """, unsafe_allow_html=True)
-
-    tabs = st.tabs([f"📄 {name}" for name in dfs.keys()])
-    for tab, (fname, df) in zip(tabs, dfs.items()):
-        with tab:
-            profiles = profile_columns(df)
-            # Build one HTML block with CSS grid
-            cards = []
-            for p in profiles:
-                qc  = score_color(p["quality"])
-                fc  = score_color(p["fill_pct"])
-                dtype_label = p["dtype"].upper()
-
-                # Stats section varies by type
-                if p["dtype"] == "numeric" and "min" in p:
-                    neg_warn     = (f'<div style="color:#F85149;font-size:11px;margin-top:6px">'
-                                    f'⚠ {p["negatives"]} negative values</div>'
-                                    if p.get("negatives", 0) > 0 else "")
-                    outlier_warn = (f'<div style="color:#F0883E;font-size:11px;margin-top:4px">'
-                                    f'◈ {p["outliers"]} outliers detected (IQR)</div>'
-                                    if p.get("outliers", 0) > 0 else "")
-                    mid_lbl = "median" if "median" in p else "avg"
-                    mid_val = p.get("median", p.get("mean", 0))
-                    stats = f"""
-                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;margin-top:10px">
-                      <div style="text-align:center;background:#0D1117;border-radius:4px;padding:5px">
-                        <div style="color:#6E7681;font-size:10px">min</div>
-                        <div style="color:#E6EDF3;font-weight:700;font-size:12px;font-family:monospace">{p['min']:,}</div>
-                      </div>
-                      <div style="text-align:center;background:#0D1117;border-radius:4px;padding:5px">
-                        <div style="color:#6E7681;font-size:10px">{mid_lbl}</div>
-                        <div style="color:#E6EDF3;font-weight:700;font-size:12px;font-family:monospace">{mid_val:,}</div>
-                      </div>
-                      <div style="text-align:center;background:#0D1117;border-radius:4px;padding:5px">
-                        <div style="color:#6E7681;font-size:10px">max</div>
-                        <div style="color:#E6EDF3;font-weight:700;font-size:12px;font-family:monospace">{p['max']:,}</div>
-                      </div>
-                    </div>{neg_warn}{outlier_warn}"""
-                elif p["dtype"] == "datetime" and "date_min" in p:
-                    fut = (f'<div style="color:#F85149;font-size:11px;margin-top:4px">⚠ {p["future"]} future dates</div>'
-                           if p.get("future", 0) > 0 else "")
-                    stats = f"""
-                    <div style="margin-top:10px;font-size:11px;color:#8B949E">
-                      <div>{p['date_min']} → {p['date_max']}</div>
-                      <div style="color:#6E7681">{p.get('range_days',0):,} day range</div>
-                      {fut}
-                    </div>"""
-                else:
-                    tops = p.get("top_values", [])
-                    chips = " ".join(
-                        f'<span style="background:#21262D;color:#79C0FF;font-size:10px;padding:1px 7px;border-radius:4px;font-family:monospace">{v[:20]}</span>'
-                        for v in tops
-                    )
-                    stats = f'<div style="margin-top:8px;line-height:2">{chips}</div>'
-
-                uniq_pct = round(p["unique"] / p["total"] * 100, 0) if p["total"] else 0
-
-                cards.append(f"""
-                <div style="background:#161B22;border:1px solid #21262D;border-radius:10px;padding:16px">
-                  <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px">
-                    <div style="display:flex;align-items:center;gap:8px">
-                      <span style="font-size:15px">{p['icon']}</span>
-                      <div>
-                        <div style="font-size:13px;font-weight:700;color:#E6EDF3;font-family:monospace">{p['name']}</div>
-                        <div style="font-size:10px;color:#6E7681;margin-top:1px">{dtype_label} · {p['unique']:,} unique ({uniq_pct:.0f}%)</div>
-                      </div>
-                    </div>
-                    <span style="font-size:13px;font-weight:800;color:{qc};font-family:monospace">{p['quality']}</span>
-                  </div>
-                  <div>
-                    <div style="display:flex;justify-content:space-between;font-size:10px;color:#6E7681;margin-bottom:3px">
-                      <span>Filled</span><span style="color:{fc}">{p['fill_pct']}%</span>
-                    </div>
-                    <div style="background:#21262D;border-radius:999px;height:5px;overflow:hidden">
-                      <div style="width:{p['fill_pct']}%;background:{fc};height:5px;border-radius:999px"></div>
-                    </div>
-                    {f'<div style="font-size:10px;color:#F85149;margin-top:3px">⚠ {p["nulls"]:,} missing values</div>' if p["nulls"] > 0 else ""}
-                  </div>
-                  {stats}
-                </div>""")
-
-            # Render as CSS grid (3 columns)
-            grid = f"""
-            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:8px">
-              {''.join(cards)}
-            </div>"""
-            st.markdown(grid, unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1404,14 +1409,11 @@ def main():
     if "results" not in st.session_state:
         return
 
-    R       = st.session_state.results
-    scores  = R["score_data"]["scores"]
-    weights = R["score_data"]["weights"]
-    details = R["score_data"]["details"]
-    overall = scores["overall"]
-    grade, grade_color = overall_grade(overall)
-    lbl, lbl_color     = score_label(overall)
-    recs    = R["recs"]
+    R    = st.session_state.results
+    recs = R["recs"]
+
+    # ── SCORE REVEAL — first thing the user sees ──────────────────────────────
+    render_score_reveal(R)
 
     # ── EXECUTIVE SUMMARY ────────────────────────────────────────────────────
     render_executive_summary(R)
@@ -1431,63 +1433,13 @@ def main():
             use_container_width=True,
         )
 
-    # ── SECTION 0: DATA PREVIEW ───────────────────────────────────────────────
+    # ── DATA PREVIEW ─────────────────────────────────────────────────────────
     render_data_preview(R["dfs"], R["joins"])
 
-    # ── COLUMN PROFILER ───────────────────────────────────────────────────────
-    render_column_profiler(R["dfs"])
-
-    # ── DISTRIBUTIONS ─────────────────────────────────────────────────────────
+    # ── DISTRIBUTIONS ────────────────────────────────────────────────────────
     render_distributions(R["dfs"])
 
-    st.markdown('<hr class="dq-divider">', unsafe_allow_html=True)
-
-    # ── SECTION 1: SCORE OVERVIEW ─────────────────────────────────────────────
-    st.markdown("""
-    <div class="section-header">Diagnostic Result</div>
-    <div class="section-title">Data Quality Score</div>
-    """, unsafe_allow_html=True)
-
-    g_col, score_col, dim_col = st.columns([1.5, 1, 2.2], gap="medium")
-
-    with g_col:
-        st.plotly_chart(make_gauge(overall), use_container_width=True,
-                        config={"displayModeBar": False})
-
-    with score_col:
-        benchmark = details.get("benchmark", "")
-        urgency   = details.get("urgency", "")
-        files_txt = " · ".join(f"<b>{k}</b>" for k in R["dfs"].keys())
-        rows_tot  = sum(len(df) for df in R["dfs"].values())
-        domain_txt = f"{R['domain']} (detected)"
-        st.markdown(f"""
-        <div style="padding:10px 0">
-          <div class="score-grade" style="color:{grade_color}">{grade}</div>
-          <div class="score-label" style="color:{lbl_color}">{lbl}</div>
-          <div class="benchmark-badge">{benchmark}</div>
-          <div style="font-size:12px;color:#484F58;margin-top:16px;line-height:1.9">
-            {len(R['dfs'])} file{'s' if len(R['dfs'])>1 else ''} · {rows_tot:,} rows<br>
-            Domain: <span style="color:#8B949E">{domain_txt}</span><br>
-            {files_txt}
-          </div>
-          <div style="margin-top:14px;font-size:13px;color:{lbl_color};font-weight:600">
-            {urgency}
-          </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with dim_col:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown('<div class="card-title">Score by dimension</div>', unsafe_allow_html=True)
-        render_dim_bars(scores, weights)
-        if details.get("integration_penalty", 0) > 0:
-            st.markdown(
-                f'<div style="font-size:11px;color:#484F58;margin-top:8px">'
-                f'⚠ -{details["integration_penalty"]} integration complexity penalty applied</div>',
-                unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    # ── SECTION 1.5: QUALITY HEATMAP ──────────────────────────────────────────
+    # ── QUALITY HEATMAP ───────────────────────────────────────────────────────
     if len(R["dfs"]) > 1:
         st.markdown('<hr class="dq-divider">', unsafe_allow_html=True)
         st.markdown("""
