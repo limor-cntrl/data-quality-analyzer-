@@ -262,6 +262,228 @@ DIMS = [
 
 
 
+def make_speedometer(score: float) -> go.Figure:
+    """Semicircle speedometer gauge — red left, green right."""
+    c = score_color(score)
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=score,
+        number={"font": {"size": 64, "color": c, "family": "JetBrains Mono"},
+                "suffix": ""},
+        gauge={
+            "axis": {
+                "range": [0, 100],
+                "tickwidth": 1.5,
+                "tickcolor": "#30363D",
+                "tickfont": {"color": "#6E7681", "size": 11},
+                "dtick": 25,
+            },
+            "bar":  {"color": c, "thickness": 0.28},
+            "bgcolor": "rgba(0,0,0,0)",
+            "borderwidth": 0,
+            "steps": [
+                {"range": [0,  50],  "color": "#2d0808"},
+                {"range": [50, 65],  "color": "#2d1500"},
+                {"range": [65, 75],  "color": "#2a1d00"},
+                {"range": [75, 85],  "color": "#0a2010"},
+                {"range": [85, 100], "color": "#051a10"},
+            ],
+            "threshold": {
+                "line": {"color": "#E6EDF3", "width": 3},
+                "thickness": 0.82,
+                "value": score,
+            },
+        },
+    ))
+    fig.update_layout(
+        height=300,
+        margin=dict(t=30, b=5, l=30, r=30),
+        paper_bgcolor="#0D1117",
+        plot_bgcolor="#0D1117",
+        font={"family": "Inter", "color": "#E6EDF3"},
+    )
+    return fig
+
+
+# ── DB connector config ───────────────────────────────────────────────────────
+_DB_CONFIGS = {
+    "❄️  Snowflake": {
+        "color": "#29B5E8",
+        "fields": [
+            ("Account identifier", "myorg-myaccount.snowflakecomputing.com", False),
+            ("Warehouse",          "COMPUTE_WH",    False),
+            ("Database",           "PRODUCTION",    False),
+            ("Schema",             "PUBLIC",        False),
+            ("Username",           "you@company.com", False),
+            ("Password",           "",              True),
+        ],
+    },
+    "☁️  BigQuery": {
+        "color": "#4285F4",
+        "fields": [
+            ("Project ID",          "my-project-123456", False),
+            ("Dataset",             "analytics",         False),
+            ("Location",            "US",                False),
+            ("Service Account JSON","Paste JSON key...", False),
+        ],
+    },
+    "🔴  Amazon Redshift": {
+        "color": "#E6182D",
+        "fields": [
+            ("Host",     "mycluster.us-east-1.redshift.amazonaws.com", False),
+            ("Port",     "5439",    False),
+            ("Database", "dev",     False),
+            ("Username", "awsuser", False),
+            ("Password", "",        True),
+        ],
+    },
+    "🐘  PostgreSQL": {
+        "color": "#336791",
+        "fields": [
+            ("Host",     "localhost", False),
+            ("Port",     "5432",      False),
+            ("Database", "mydb",      False),
+            ("Username", "postgres",  False),
+            ("Password", "",          True),
+        ],
+    },
+    "🐬  MySQL": {
+        "color": "#00758F",
+        "fields": [
+            ("Host",     "localhost", False),
+            ("Port",     "3306",      False),
+            ("Database", "mydb",      False),
+            ("Username", "root",      False),
+            ("Password", "",          True),
+        ],
+    },
+    "⬦  Databricks": {
+        "color": "#FF3621",
+        "fields": [
+            ("Server hostname", "adb-xxxx.azuredatabricks.net", False),
+            ("HTTP path",       "/sql/1.0/warehouses/xxxx",     False),
+            ("Catalog",         "main",    False),
+            ("Schema",          "default", False),
+            ("Access token",    "",        True),
+        ],
+    },
+}
+
+
+def render_db_connector():
+    """Fake enterprise database connector — visual placeholder."""
+    st.markdown("""
+    <div style="background:#0D1117;border:1px dashed #30363D;border-radius:12px;
+                padding:28px 32px;margin-top:8px">
+      <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;
+                  text-transform:uppercase;color:#6E7681;margin-bottom:18px">
+        Select Database
+      </div>
+    """, unsafe_allow_html=True)
+
+    db_name = st.selectbox(
+        "db", list(_DB_CONFIGS.keys()),
+        label_visibility="collapsed",
+        key="db_type_select",
+    )
+    cfg = _DB_CONFIGS[db_name]
+    color = cfg["color"]
+
+    st.markdown(
+        f'<div style="height:3px;background:{color};border-radius:2px;'
+        f'margin:12px 0 20px"></div>',
+        unsafe_allow_html=True,
+    )
+
+    fields = cfg["fields"]
+    mid = math.ceil(len(fields) / 2)
+    left_fields, right_fields = fields[:mid], fields[mid:]
+
+    col_l, col_r = st.columns(2, gap="medium")
+    for col, flist in [(col_l, left_fields), (col_r, right_fields)]:
+        with col:
+            for label, placeholder, is_pw in flist:
+                if is_pw:
+                    st.text_input(label, placeholder="••••••••",
+                                  type="password", key=f"db_{label}")
+                else:
+                    st.text_input(label, placeholder=placeholder,
+                                  key=f"db_{label}")
+
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+    if st.button(f"🔌  Connect to {db_name.split()[1]}",
+                 type="primary", use_container_width=False,
+                 key="db_connect_btn"):
+        with st.spinner(f"Connecting to {db_name.split()[1]}..."):
+            time.sleep(2.2)
+        st.markdown(f"""
+        <div style="background:linear-gradient(135deg,#161B22,#0D1117);
+                    border:1px solid {color};border-radius:10px;
+                    padding:20px 24px;margin-top:16px">
+          <div style="font-size:14px;font-weight:700;color:#E6EDF3;margin-bottom:6px">
+            🏢 Enterprise Feature
+          </div>
+          <div style="font-size:13px;color:#8B949E;line-height:1.7">
+            Live database connections are available in the Enterprise plan.<br>
+            Supports read-only access, schema discovery, and table sampling.
+          </div>
+          <div style="margin-top:14px">
+            <a href="mailto:hello@dataqualityai.com"
+               style="background:{color};color:#fff;font-size:12px;font-weight:700;
+                      padding:8px 20px;border-radius:6px;text-decoration:none">
+              Request Enterprise Access →
+            </a>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def _render_progress(placeholder, pct: int, current: str, done_steps: list):
+    """Render animated progress bar into a st.empty() placeholder."""
+    steps_html = ""
+    for emoji, label in done_steps:
+        steps_html += (
+            f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:7px">'
+            f'<span style="color:#3FB950;font-family:\'JetBrains Mono\',monospace;'
+            f'font-size:12px;width:14px">✓</span>'
+            f'<span style="font-size:13px;color:#3FB950">{label}</span>'
+            f'</div>'
+        )
+    if pct < 100:
+        steps_html += (
+            f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:7px">'
+            f'<span style="color:#58A6FF;font-family:\'JetBrains Mono\',monospace;'
+            f'font-size:12px;width:14px">›</span>'
+            f'<span style="font-size:13px;color:#C9D1D9">{current}</span>'
+            f'</div>'
+        )
+
+    placeholder.markdown(f"""
+    <div style="background:#161B22;border:1px solid #21262D;border-radius:14px;
+                padding:32px 36px;margin:16px 0;max-width:640px">
+      <div style="font-size:11px;font-weight:700;letter-spacing:2px;
+                  text-transform:uppercase;color:#6E7681;margin-bottom:18px">
+        🔬 Running Diagnostic
+      </div>
+      <div style="background:#21262D;border-radius:999px;height:8px;
+                  overflow:hidden;margin-bottom:8px">
+        <div style="width:{pct}%;
+                    background:linear-gradient(90deg,#F85149 0%,#E3B341 48%,#3FB950 100%);
+                    height:8px;border-radius:999px"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;
+                  font-size:11px;color:#484F58;margin-bottom:22px">
+        <span style="color:#6E7681">{current if pct < 100 else "✅ Complete"}</span>
+        <span style="font-family:'JetBrains Mono',monospace">{pct}%</span>
+      </div>
+      {steps_html}
+    </div>
+    """, unsafe_allow_html=True)
+
+
 def make_flow_map(dfs, joins, orphan_result, gap_result) -> go.Figure:
     names = list(dfs.keys())
     n = len(names)
@@ -680,7 +902,7 @@ def _unused_profile_columns(df: pd.DataFrame) -> list:  # kept for reference, no
 # ─────────────────────────────────────────────────────────────────────────────
 
 def render_score_reveal(R: dict):
-    """Full-width verdict card — the first thing after analysis completes."""
+    """Speedometer gauge + grade + dimension bars — first thing after analysis."""
     scores  = R["score_data"]["scores"]
     details = R["score_data"]["details"]
     weights = R["score_data"]["weights"]
@@ -695,118 +917,131 @@ def render_score_reveal(R: dict):
     n_gaps     = sum(f["missing_count"]   for f in R["gaps"].get("findings", []))
     rows_total = sum(len(df) for df in R["dfs"].values())
 
-    def stat_pill(val, label, color):
+    # ── Header banner ─────────────────────────────────────────────────────────
+    st.markdown(f"""
+    <style>
+    @keyframes gradeIn {{
+      from {{ opacity:0; transform:scale(0.5) rotate(-8deg); }}
+      to   {{ opacity:1; transform:scale(1)   rotate(0deg);  }}
+    }}
+    .grade-anim {{ animation: gradeIn 0.65s cubic-bezier(0.34,1.56,0.64,1) both; }}
+    </style>
+    <div style="background:linear-gradient(135deg,#010409 0%,#0D1117 55%,#161B22 100%);
+                border:1px solid {gc};border-radius:16px 16px 0 0;
+                padding:28px 44px 18px;position:relative;overflow:hidden;
+                box-shadow:0 0 60px {gc}15">
+      <div style="position:absolute;top:0;left:0;right:0;height:4px;
+                  background:linear-gradient(90deg,{gc},{gc}55);
+                  border-radius:16px 16px 0 0"></div>
+      <div style="font-size:11px;font-weight:700;letter-spacing:2px;
+                  text-transform:uppercase;color:{gc}">
+        🔬 Diagnostic Result
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Main layout: gauge (left) | grade + dims (right) ─────────────────────
+    gauge_col, verdict_col = st.columns([1, 1.1], gap="large")
+
+    with gauge_col:
+        st.markdown(
+            f'<div style="background:#0D1117;border-left:1px solid {gc};'
+            f'border-right:none;border-bottom:none;padding:8px 0 0 0">',
+            unsafe_allow_html=True)
+        st.plotly_chart(make_speedometer(overall), use_container_width=True,
+                        config={"displayModeBar": False})
+        # Zone labels
+        st.markdown(f"""
+        <div style="display:flex;justify-content:space-between;
+                    padding:0 32px;margin-top:-18px;margin-bottom:8px">
+          <span style="font-size:10px;color:#F85149;font-weight:600">◀ Critical</span>
+          <span style="font-size:10px;color:#E3B341;font-weight:600">Fair</span>
+          <span style="font-size:10px;color:#3FB950;font-weight:600">Excellent ▶</span>
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with verdict_col:
+        st.markdown(f"""
+        <div style="background:#0D1117;border-right:1px solid {gc};
+                    padding:20px 32px 20px 16px">
+          <div class="grade-anim"
+               style="font-size:96px;font-weight:900;line-height:1;
+                      color:{gc};font-family:'JetBrains Mono',monospace;
+                      text-shadow:0 0 60px {gc}44">
+            {grade}
+          </div>
+          <div style="font-size:17px;font-weight:700;color:{gc};margin-top:4px">{lbl}</div>
+          <div style="display:inline-block;background:#21262D;border:1px solid #30363D;
+                      border-radius:999px;padding:3px 14px;font-size:11px;color:#8B949E;
+                      margin-top:8px">{bench}</div>
+          <div style="font-size:13px;color:#C9D1D9;font-weight:600;margin-top:12px;
+                      line-height:1.6;max-width:360px">{urgency}</div>
+
+          <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;
+                      text-transform:uppercase;color:#484F58;margin:20px 0 12px">
+            Score by dimension
+          </div>
+        """, unsafe_allow_html=True)
+
+        # Dimension bars (inline HTML to stay inside the styled div)
+        penalty = details.get("integration_penalty", 0)
+        for key, label, _ in DIMS:
+            val  = scores.get(key)
+            w    = weights.get(key, 0)
+            c    = score_color(val)
+            ld, _ = score_label(val)
+            pct  = val if val is not None else 0
+            vs   = f"{val:.0f}" if val is not None else "N/A"
+            ws   = f"{int(w*100)}%"
+            st.markdown(f"""
+            <div style="margin-bottom:11px">
+              <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                <div>
+                  <span style="font-size:12px;font-weight:600;color:#C9D1D9">{label}</span>
+                  <span style="font-size:10px;color:#484F58;margin-left:5px">{ws}</span>
+                </div>
+                <span style="font-size:12px;font-weight:700;color:{c};
+                             font-family:'JetBrains Mono',monospace">
+                  {vs} <span style="font-size:10px;font-weight:500">{ld}</span>
+                </span>
+              </div>
+              <div style="background:#21262D;border-radius:999px;height:6px;overflow:hidden">
+                <div style="width:{pct}%;background:{c};height:6px;border-radius:999px"></div>
+              </div>
+            </div>""", unsafe_allow_html=True)
+
+        if penalty > 0:
+            st.markdown(
+                f'<div style="font-size:11px;color:#484F58;margin-top:4px">'
+                f'⚠ −{penalty} integration complexity penalty</div>',
+                unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── Stats pills row ────────────────────────────────────────────────────────
+    orphan_c = "#F85149" if n_orphans > 0 else "#3FB950"
+    dup_c    = "#F85149" if n_dupes   > 0 else "#3FB950"
+    gap_c    = "#E3B341" if n_gaps    > 0 else "#3FB950"
+
+    def pill(val, label, color):
         return (
-            f'<div style="flex:1;min-width:110px;text-align:center;background:#0D1117;'
-            f'border:1px solid {color}44;border-radius:10px;padding:14px 8px">'
+            f'<div style="flex:1;min-width:110px;text-align:center;'
+            f'background:#161B22;border:1px solid {color}44;'
+            f'border-radius:0 0 10px 10px;padding:14px 8px">'
             f'<div style="font-size:26px;font-weight:900;color:{color};'
             f'font-family:\'JetBrains Mono\',monospace">{val}</div>'
             f'<div style="font-size:11px;color:#6E7681;margin-top:3px">{label}</div>'
             f'</div>'
         )
 
-    orphan_c = "#F85149" if n_orphans > 0 else "#3FB950"
-    dup_c    = "#F85149" if n_dupes   > 0 else "#3FB950"
-    gap_c    = "#E3B341" if n_gaps    > 0 else "#3FB950"
-
-    stats_html = (
-        f'<div style="display:flex;gap:10px;margin-top:28px;flex-wrap:wrap">'
-        f'{stat_pill(f"{n_orphans:,}", "orphan records", orphan_c)}'
-        f'{stat_pill(str(n_dupes), "duplicate entities", dup_c)}'
-        f'{stat_pill(f"{n_gaps:,}", "pipeline gaps", gap_c)}'
-        f'{stat_pill(f"{rows_total:,}", "rows analyzed", "#58A6FF")}'
-        f'</div>'
-    )
-
-    # Build dimension bars inline
-    dim_rows = []
-    for key, label, _ in DIMS:
-        val  = scores.get(key)
-        w    = weights.get(key, 0)
-        c    = score_color(val)
-        ld, _ = score_label(val)
-        pct  = val if val is not None else 0
-        vs   = f"{val:.0f}" if val is not None else "N/A"
-        ws   = f"{int(w*100)}%"
-        dim_rows.append(f"""
-        <div style="margin-bottom:13px">
-          <div style="display:flex;justify-content:space-between;margin-bottom:5px">
-            <div>
-              <span style="font-size:12px;font-weight:600;color:#C9D1D9">{label}</span>
-              <span style="font-size:10px;color:#484F58;margin-left:6px">{ws} weight</span>
-            </div>
-            <span style="font-size:12px;font-weight:700;color:{c};font-family:'JetBrains Mono',monospace">
-              {vs} <span style="font-size:10px;font-weight:500">{ld}</span>
-            </span>
-          </div>
-          <div style="background:#21262D;border-radius:999px;height:7px;overflow:hidden">
-            <div style="width:{pct}%;background:{c};height:7px;border-radius:999px"></div>
-          </div>
-        </div>""")
-
-    penalty = details.get("integration_penalty", 0)
-    penalty_note = (
-        f'<div style="font-size:11px;color:#484F58;margin-top:6px">'
-        f'⚠ −{penalty} integration complexity penalty applied</div>'
-        if penalty > 0 else ""
-    )
-
     st.markdown(f"""
-    <style>
-    @keyframes gradeIn {{
-      from {{ opacity:0; transform:scale(0.55) rotate(-6deg); }}
-      to   {{ opacity:1; transform:scale(1)    rotate(0deg);  }}
-    }}
-    .grade-anim {{ animation: gradeIn 0.6s cubic-bezier(0.34,1.56,0.64,1) both; }}
-    </style>
-    <div style="background:linear-gradient(135deg,#010409 0%,#0D1117 55%,#161B22 100%);
-                border:1px solid {gc};border-radius:16px;padding:40px 44px 36px;
-                margin-bottom:28px;position:relative;overflow:hidden;
-                box-shadow:0 0 60px {gc}18">
-      <div style="position:absolute;top:0;left:0;right:0;height:4px;
-                  background:linear-gradient(90deg,{gc},{gc}66);
-                  border-radius:16px 16px 0 0"></div>
-      <div style="font-size:11px;font-weight:700;letter-spacing:2px;
-                  text-transform:uppercase;color:{gc};margin-bottom:22px">
-        🔬 Diagnostic Result
-      </div>
-      <div style="display:flex;align-items:flex-start;gap:40px;flex-wrap:wrap">
-
-        <!-- Grade letter -->
-        <div class="grade-anim"
-             style="font-size:128px;font-weight:900;line-height:1;flex-shrink:0;
-                    color:{gc};font-family:'JetBrains Mono',monospace;
-                    text-shadow:0 0 80px {gc}55">
-          {grade}
-        </div>
-
-        <!-- Score + verdict -->
-        <div style="flex:1;min-width:200px">
-          <div style="font-size:54px;font-weight:900;color:#E6EDF3;
-                      font-family:'JetBrains Mono',monospace;line-height:1">
-            {overall}
-            <span style="font-size:22px;color:#484F58;font-weight:400"> / 100</span>
-          </div>
-          <div style="font-size:17px;font-weight:700;color:{gc};margin-top:6px">{lbl}</div>
-          <div style="display:inline-block;background:#21262D;border:1px solid #30363D;
-                      border-radius:999px;padding:4px 16px;font-size:12px;color:#8B949E;
-                      margin-top:10px">{bench}</div>
-          <div style="font-size:13px;color:#C9D1D9;font-weight:600;margin-top:14px;
-                      line-height:1.6;max-width:380px">{urgency}</div>
-        </div>
-
-        <!-- Dimension bars -->
-        <div style="flex:1;min-width:260px;border-left:1px solid #21262D;padding-left:32px">
-          <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;
-                      text-transform:uppercase;color:#484F58;margin-bottom:14px">
-            Score by dimension
-          </div>
-          {''.join(dim_rows)}
-          {penalty_note}
-        </div>
-
-      </div>
-      {stats_html}
+    <div style="display:flex;gap:0;border:1px solid {gc};
+                border-top:none;border-radius:0 0 16px 16px;overflow:hidden;
+                margin-bottom:28px;box-shadow:0 0 60px {gc}15">
+      {pill(f"{n_orphans:,}", "orphan records",     orphan_c)}
+      {pill(str(n_dupes),     "duplicate entities", dup_c)}
+      {pill(f"{n_gaps:,}",   "pipeline gaps",      gap_c)}
+      {pill(f"{rows_total:,}", "rows analyzed",     "#58A6FF")}
     </div>
     """, unsafe_allow_html=True)
 
@@ -1338,31 +1573,41 @@ def main():
     </div>
     """, unsafe_allow_html=True)
 
-    # ── UPLOAD ────────────────────────────────────────────────────────────────
-    up_col, info_col = st.columns([3, 1], gap="medium")
+    # ── DATA SOURCE ───────────────────────────────────────────────────────────
+    st.markdown("""
+    <div class="section-header" style="margin-bottom:6px">Data Source</div>
+    """, unsafe_allow_html=True)
 
-    with up_col:
-        uploaded_files = st.file_uploader(
-            "Drop your CSV files here — up to 5 related files from the same business process",
-            type=["csv"], accept_multiple_files=True,
-            help="Related files: e.g. orders + customers + invoices from the same pipeline.",
-        )
+    tab_files, tab_db = st.tabs(["📁  Upload CSV Files", "🔌  Connect to Database"])
 
-    with info_col:
-        st.markdown("""
-        <div class="card">
-          <div class="card-title">What we check</div>
-          <div style="font-size:12px;color:#8B949E;line-height:2">
-            ✅ &nbsp;Completeness<br>
-            ✅ &nbsp;Uniqueness & entity duplicates<br>
-            ✅ &nbsp;Format & range validity<br>
-            ✅ &nbsp;Cross-file referential integrity<br>
-            ✅ &nbsp;Process flow gaps<br>
-            ✅ &nbsp;Semantic understanding<br>
-            ✅ &nbsp;Business impact estimation
-          </div>
-        </div>
-        """, unsafe_allow_html=True)
+    uploaded_files = []
+
+    with tab_files:
+        up_col, info_col = st.columns([3, 1], gap="medium")
+        with up_col:
+            uploaded_files = st.file_uploader(
+                "Drop your CSV files here — up to 5 related files from the same business process",
+                type=["csv"], accept_multiple_files=True,
+                help="Related files: e.g. orders + customers + invoices from the same pipeline.",
+            ) or []
+        with info_col:
+            st.markdown("""
+            <div class="card">
+              <div class="card-title">What we check</div>
+              <div style="font-size:12px;color:#8B949E;line-height:2">
+                ✅ &nbsp;Completeness<br>
+                ✅ &nbsp;Uniqueness & entity duplicates<br>
+                ✅ &nbsp;Format & range validity<br>
+                ✅ &nbsp;Cross-file referential integrity<br>
+                ✅ &nbsp;Process flow gaps<br>
+                ✅ &nbsp;Semantic understanding<br>
+                ✅ &nbsp;Business impact estimation
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    with tab_db:
+        render_db_connector()
 
     if not uploaded_files:
         st.markdown("""
@@ -1386,25 +1631,32 @@ def main():
         for k in ["results","email_submitted","show_form","user_info"]:
             st.session_state.pop(k, None)
 
-        steps = [
-            ("📂", "Loading and profiling files..."),
-            ("🧠", "Detecting entities and business domain..."),
-            ("🗺️", "Mapping relationships and join paths..."),
-            ("⚡", "Running 23 quality checks..."),
-            ("💥", "Calculating business impact..."),
+        analysis_steps = [
+            ("📂", "Loading and normalizing files"),
+            ("🧠", "Detecting entities and business domain"),
+            ("🗺️", "Mapping cross-file relationships"),
+            ("⚡", "Running 23 quality checks"),
+            ("💥", "Calculating business impact"),
         ]
-        with st.status("Running diagnostic...", expanded=True) as status:
-            for emoji, text in steps:
-                st.write(f"{emoji} {text}")
-                time.sleep(0.55)
-            results, errors = run_analysis(uploaded_files)
-            for e in errors:
-                st.error(e)
-            if results:
-                st.session_state.results = results
-                status.update(label="Diagnostic complete.", state="complete", expanded=False)
-            else:
-                status.update(label="Analysis failed.", state="error")
+        prog = st.empty()
+        done = []
+        for i, (emoji, label) in enumerate(analysis_steps):
+            pct = int((i / len(analysis_steps)) * 88) + 5
+            _render_progress(prog, pct, f"{emoji} {label}...", done)
+            time.sleep(0.6)
+            done.append((emoji, label))
+
+        results, errors = run_analysis(uploaded_files)
+        _render_progress(prog, 100, "✅ Diagnostic complete", done)
+        time.sleep(0.4)
+        prog.empty()
+
+        for e in errors:
+            st.error(e)
+        if results:
+            st.session_state.results = results
+        elif not errors:
+            st.error("Analysis failed — please check your files.")
 
     if "results" not in st.session_state:
         return
