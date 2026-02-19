@@ -2314,49 +2314,157 @@ def main():
     for rec in recs[:3]:
         render_rec_teaser(rec)
 
-    # Blurred extra
-    if len(recs) > 3:
-        extra_lines = "".join(
-            f'<div style="font-size:13px;color:#C9D1D9;margin-bottom:8px">'
-            f'{r["icon"]} {r["title"]} — {r["teaser_metric"]}</div>'
-            for r in recs[3:]
+    # ── BLURRED DASHBOARD PREVIEW + LOCK OVERLAY ──────────────────────────────
+    # Build real rec cards for the blurred preview (locked recs = more convincing)
+    locked_recs = recs[3:] if len(recs) > 3 else recs[1:] if len(recs) > 1 else recs
+    blurred_cards_html = ""
+    for rec in locked_recs[:4]:
+        s = SEV.get(rec.get("severity", "medium"), SEV["medium"])
+        steps_html = "".join(
+            f"<li style='margin-bottom:8px;color:#C9D1D9'>{step}</li>"
+            for step in rec.get("full_steps", [])
         )
-        st.markdown(f"""
-        <div class="rec-blur">
-          <div style="font-size:11px;font-weight:700;color:#6E7681;text-transform:uppercase;
-                      letter-spacing:1px;margin-bottom:12px">
-            + {len(recs)-3} more recommendations locked
+        blurred_cards_html += f"""
+        <div style="background:{s['bg']};border:1px solid {s['border']};
+                    border-left:4px solid {s['border']};border-radius:10px;
+                    padding:20px;margin-bottom:14px">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+            <span style="font-size:22px">{rec['icon']}</span>
+            <span style="font-size:15px;font-weight:700;color:#E6EDF3">{rec['title']}</span>
+            <span style="background:{s['badge_bg']};color:{s['badge_fg']};font-size:10px;
+                         font-weight:700;padding:2px 10px;border-radius:999px;
+                         text-transform:uppercase;margin-left:auto">
+              {rec.get('severity','medium').upper()}
+            </span>
           </div>
-          {extra_lines}
-        </div>""", unsafe_allow_html=True)
+          <p style="font-size:13px;color:#8B949E;margin:0 0 14px;line-height:1.6">
+            <strong style="color:#C9D1D9">Root cause:</strong> {rec.get('full_root_cause','')}
+          </p>
+          <p style="font-size:12px;font-weight:700;color:{s['text']};
+                    text-transform:uppercase;letter-spacing:1px;margin:0 0 8px">
+            Step-by-step fix
+          </p>
+          <ol style="font-size:13px;margin:0 0 16px;padding-left:18px;line-height:1.8">
+            {steps_html}
+          </ol>
+          <div style="display:flex;flex-wrap:wrap;gap:20px;font-size:12px;color:#6E7681;
+                      border-top:1px solid #21262D;padding-top:12px">
+            <span>⏱ <strong style="color:#8B949E">Effort:</strong> {rec.get('effort','')}</span>
+            <span>🛡 <strong style="color:#8B949E">Prevention:</strong> {rec.get('prevention','')}</span>
+          </div>
+        </div>"""
 
-    # Lock CTA
+    # Fake SQL block adds visual richness
+    sql_flair = """
+    <div style="background:#0D1117;border:1px solid #30363D;border-radius:10px;
+                padding:20px;margin-bottom:14px">
+      <div style="font-size:11px;font-weight:700;color:#6E7681;text-transform:uppercase;
+                  letter-spacing:1px;margin-bottom:12px">💻 SQL Fix Queries</div>
+      <pre style="background:#010409;border:1px solid #21262D;border-radius:6px;
+                  padding:16px;font-size:12px;color:#79C0FF;
+                  font-family:'JetBrains Mono',monospace;overflow-x:auto;margin:0">UPDATE orders o
+LEFT JOIN customers c ON o.customer_id = c.id
+SET o.status = 'orphaned'
+WHERE c.id IS NULL;
+
+-- Deduplicate entities
+WITH ranked AS (
+  SELECT *, ROW_NUMBER() OVER (
+    PARTITION BY email ORDER BY created_at DESC
+  ) AS rn FROM customers
+)
+DELETE FROM customers WHERE rn &gt; 1;</pre>
+    </div>
+    <div style="background:#161B22;border:1px solid #21262D;border-radius:10px;
+                padding:20px;margin-bottom:14px">
+      <div style="font-size:11px;font-weight:700;color:#6E7681;text-transform:uppercase;
+                  letter-spacing:1px;margin-bottom:16px">📈 Impact & Effort Matrix</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+        <div style="background:#0D1117;border-radius:8px;padding:14px;text-align:center">
+          <div style="font-size:22px;font-weight:900;color:#F85149;font-family:'JetBrains Mono',monospace">4h</div>
+          <div style="font-size:11px;color:#6E7681;margin-top:4px">Avg fix time</div>
+        </div>
+        <div style="background:#0D1117;border-radius:8px;padding:14px;text-align:center">
+          <div style="font-size:22px;font-weight:900;color:#3FB950;font-family:'JetBrains Mono',monospace">93%</div>
+          <div style="font-size:11px;color:#6E7681;margin-top:4px">Fixable with SQL</div>
+        </div>
+        <div style="background:#0D1117;border-radius:8px;padding:14px;text-align:center">
+          <div style="font-size:22px;font-weight:900;color:#58A6FF;font-family:'JetBrains Mono',monospace">2w</div>
+          <div style="font-size:11px;color:#6E7681;margin-top:4px">Est. to clean</div>
+        </div>
+      </div>
+    </div>"""
+
+    n_fixes    = len(recs)
+    n_critical = sum(1 for r in recs if r.get("severity") == "critical")
+    n_high     = sum(1 for r in recs if r.get("severity") == "high")
+
     st.markdown(f"""
-    <div class="locked-box">
-      <div style="font-size:40px;margin-bottom:12px">🔒</div>
-      <div style="font-size:22px;font-weight:900;color:#E6EDF3;margin-bottom:8px">
-        Unlock Full Remediation Plan
+    <div style="position:relative;margin:32px 0 0;border-radius:12px;overflow:hidden">
+      <!-- BLURRED REAL CONTENT -->
+      <div style="filter:blur(5px);pointer-events:none;user-select:none;
+                  opacity:0.75;max-height:820px;overflow:hidden">
+        {blurred_cards_html}
+        {sql_flair}
       </div>
-      <div style="font-size:14px;color:#8B949E;max-width:480px;margin:0 auto;line-height:1.7">
-        Get specific SQL queries, root cause analysis, step-by-step fix guides,
-        effort estimates, and prevention strategies — tailored to your data.
-      </div>
-      <div style="margin-top:20px;display:flex;justify-content:center;flex-wrap:wrap;gap:8px">
-        <span style="background:#21262D;border:1px solid #30363D;border-radius:999px;
-                     padding:4px 14px;font-size:12px;color:#8B949E">💻 SQL fix queries</span>
-        <span style="background:#21262D;border:1px solid #30363D;border-radius:999px;
-                     padding:4px 14px;font-size:12px;color:#8B949E">🔍 Root cause analysis</span>
-        <span style="background:#21262D;border:1px solid #30363D;border-radius:999px;
-                     padding:4px 14px;font-size:12px;color:#8B949E">⏱ Effort estimates</span>
-        <span style="background:#21262D;border:1px solid #30363D;border-radius:999px;
-                     padding:4px 14px;font-size:12px;color:#8B949E">🛡 Prevention strategies</span>
+
+      <!-- GRADIENT FADE (bottom) -->
+      <div style="position:absolute;bottom:0;left:0;right:0;height:420px;
+                  background:linear-gradient(180deg,transparent 0%,#0D1117 52%);
+                  pointer-events:none"></div>
+
+      <!-- LOCK OVERLAY -->
+      <div style="position:absolute;bottom:0;left:0;right:0;
+                  display:flex;flex-direction:column;align-items:center;
+                  padding:40px 24px 36px;text-align:center">
+
+        <div style="width:64px;height:64px;
+                    background:linear-gradient(135deg,#F85149,#F0883E);
+                    border-radius:50%;display:flex;align-items:center;
+                    justify-content:center;font-size:28px;margin-bottom:20px;
+                    box-shadow:0 0 40px rgba(248,81,73,0.35)">🔒</div>
+
+        <div style="font-size:26px;font-weight:900;color:#E6EDF3;
+                    margin-bottom:10px;letter-spacing:-0.5px">
+          Your Full Remediation Plan is Ready
+        </div>
+        <div style="font-size:14px;color:#8B949E;max-width:540px;
+                    line-height:1.8;margin-bottom:24px">
+          <strong style="color:#C9D1D9">{n_fixes} fixes identified</strong> —
+          {n_critical} critical &nbsp;·&nbsp; {n_high} high priority.<br>
+          Root cause · SQL queries · Step-by-step guides · Effort estimates · Prevention.
+        </div>
+
+        <div style="display:flex;justify-content:center;flex-wrap:wrap;gap:8px;margin-bottom:28px">
+          <span style="background:#1C1000;border:1px solid #F85149;border-radius:999px;
+                       padding:5px 16px;font-size:12px;color:#F85149;font-weight:700">
+            💻 SQL fix queries
+          </span>
+          <span style="background:#21262D;border:1px solid #30363D;border-radius:999px;
+                       padding:5px 16px;font-size:12px;color:#8B949E">
+            🔍 Root cause analysis
+          </span>
+          <span style="background:#21262D;border:1px solid #30363D;border-radius:999px;
+                       padding:5px 16px;font-size:12px;color:#8B949E">
+            ⏱ Effort estimates
+          </span>
+          <span style="background:#21262D;border:1px solid #30363D;border-radius:999px;
+                       padding:5px 16px;font-size:12px;color:#8B949E">
+            🛡 Prevention strategies
+          </span>
+          <span style="background:#21262D;border:1px solid #30363D;border-radius:999px;
+                       padding:5px 16px;font-size:12px;color:#8B949E">
+            📊 Priority ranking
+          </span>
+        </div>
+
       </div>
     </div>""", unsafe_allow_html=True)
 
     if not st.session_state.get("show_form"):
         _, btn_c, _ = st.columns([1, 2, 1])
         with btn_c:
-            if st.button("📨  Get Full Remediation Plan →",
+            if st.button("📨  Unlock Full Remediation Plan →",
                          use_container_width=True, type="primary"):
                 st.session_state.show_form = True
                 st.rerun()
