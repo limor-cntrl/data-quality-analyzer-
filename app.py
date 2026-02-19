@@ -1941,16 +1941,39 @@ def main():
     if "mode" not in st.session_state:
         st.session_state["mode"] = "simple"
 
-    mode_col, _ = st.columns([3, 5])
-    with mode_col:
-        chosen = st.radio(
-            "View mode",
-            options=["🟢  Simple", "⚙️  Advanced"],
-            index=0 if st.session_state["mode"] == "simple" else 1,
-            horizontal=True,
-            label_visibility="collapsed",
-        )
-        st.session_state["mode"] = "simple" if "Simple" in chosen else "advanced"
+    st.markdown("""
+    <style>
+    div[data-testid="stHorizontalBlock"] .mode-card { cursor:pointer; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    tog_l, tog_r, _ = st.columns([1, 1, 3])
+    with tog_l:
+        simple_active = st.session_state["mode"] == "simple"
+        simple_style  = "border:2px solid #3FB950;background:#0d1f0f;" if simple_active else "border:1px solid #30363D;background:#161B22;"
+        st.markdown(f"""
+        <div style="{simple_style}border-radius:10px;padding:12px 16px;text-align:center;margin-bottom:4px">
+          <div style="font-size:18px">🟢</div>
+          <div style="font-size:13px;font-weight:700;color:#{'3FB950' if simple_active else 'C9D1D9'};margin-top:4px">Simple</div>
+          <div style="font-size:11px;color:#6E7681;margin-top:2px">I just want to know<br>if my data is OK</div>
+        </div>""", unsafe_allow_html=True)
+        if st.button("Select Simple", key="btn_simple", use_container_width=True,
+                     type="primary" if simple_active else "secondary"):
+            st.session_state["mode"] = "simple"
+            st.rerun()
+    with tog_r:
+        adv_active   = st.session_state["mode"] == "advanced"
+        adv_style    = "border:2px solid #58A6FF;background:#0d1422;" if adv_active else "border:1px solid #30363D;background:#161B22;"
+        st.markdown(f"""
+        <div style="{adv_style}border-radius:10px;padding:12px 16px;text-align:center;margin-bottom:4px">
+          <div style="font-size:18px">⚙️</div>
+          <div style="font-size:13px;font-weight:700;color:#{'58A6FF' if adv_active else 'C9D1D9'};margin-top:4px">Advanced</div>
+          <div style="font-size:11px;color:#6E7681;margin-top:2px">I'm a data professional<br>& want full details</div>
+        </div>""", unsafe_allow_html=True)
+        if st.button("Select Advanced", key="btn_advanced", use_container_width=True,
+                     type="primary" if adv_active else "secondary"):
+            st.session_state["mode"] = "advanced"
+            st.rerun()
 
     simple = st.session_state["mode"] == "simple"
 
@@ -1958,12 +1981,38 @@ def main():
     if simple:
         st.markdown("""
     <div class="hero">
-      <div class="hero-eyebrow">✅ Data Quality Check</div>
-      <h1>Find out what's wrong<br><span>with your data.</span></h1>
+      <div class="hero-eyebrow">✅ Free · No sign-up · 30 seconds</div>
+      <h1>Is your data giving you<br><span>the right answers?</span></h1>
       <p class="hero-sub">
-        Upload a CSV file and get a plain-English report in 30 seconds.
-        No technical knowledge needed — we'll highlight the problems and tell you how to fix them.
+        Upload your spreadsheet and we'll check it for hidden errors —
+        missing data, duplicates, broken links between files, and more.
+        You'll get a clear report in plain English with exactly what to fix.
       </p>
+      <div style="display:flex;align-items:center;gap:0;margin-top:32px;flex-wrap:wrap">
+        <div style="text-align:center;padding:0 24px 0 0">
+          <div style="font-size:36px;margin-bottom:6px">📤</div>
+          <div style="font-size:13px;font-weight:700;color:#E6EDF3">1. Upload</div>
+          <div style="font-size:12px;color:#6E7681;margin-top:2px">Drop your CSV file</div>
+        </div>
+        <div style="font-size:24px;color:#30363D;margin:0 8px;padding-bottom:16px">→</div>
+        <div style="text-align:center;padding:0 24px">
+          <div style="font-size:36px;margin-bottom:6px">🔍</div>
+          <div style="font-size:13px;font-weight:700;color:#E6EDF3">2. Check</div>
+          <div style="font-size:12px;color:#6E7681;margin-top:2px">We scan for problems</div>
+        </div>
+        <div style="font-size:24px;color:#30363D;margin:0 8px;padding-bottom:16px">→</div>
+        <div style="text-align:center;padding:0 24px">
+          <div style="font-size:36px;margin-bottom:6px">📋</div>
+          <div style="font-size:13px;font-weight:700;color:#E6EDF3">3. Get results</div>
+          <div style="font-size:12px;color:#6E7681;margin-top:2px">Plain English report</div>
+        </div>
+        <div style="font-size:24px;color:#30363D;margin:0 8px;padding-bottom:16px">→</div>
+        <div style="text-align:center;padding:0 24px">
+          <div style="font-size:36px;margin-bottom:6px">🛠️</div>
+          <div style="font-size:13px;font-weight:700;color:#E6EDF3">4. Fix it</div>
+          <div style="font-size:12px;color:#6E7681;margin-top:2px">Step-by-step guide</div>
+        </div>
+      </div>
     </div>
     """, unsafe_allow_html=True)
     else:
@@ -1998,48 +2047,88 @@ def main():
     """, unsafe_allow_html=True)
 
     # ── DATA SOURCE ───────────────────────────────────────────────────────────
-    st.markdown("""
-    <div class="section-header" style="margin-bottom:6px">Data Source</div>
-    """, unsafe_allow_html=True)
-
-    tab_files, tab_db = st.tabs(["📁  Upload CSV Files", "🔌  Connect to Database"])
-
     uploaded_files = []
 
-    with tab_files:
+    if simple:
+        st.markdown("""
+        <div style="font-size:18px;font-weight:700;color:#E6EDF3;margin:24px 0 8px">
+          Upload your file
+        </div>
+        <div style="font-size:13px;color:#8B949E;margin-bottom:12px">
+          Supports CSV files exported from Excel, Google Sheets, or any database.
+        </div>
+        """, unsafe_allow_html=True)
         up_col, info_col = st.columns([3, 1], gap="medium")
         with up_col:
             uploaded_files = st.file_uploader(
-                "Drop your CSV files here — up to 5 related files from the same business process",
+                "Upload your spreadsheet (CSV)",
                 type=["csv"], accept_multiple_files=True,
-                help="Related files: e.g. orders + customers + invoices from the same pipeline.",
+                help="Export from Excel: File → Save As → CSV. From Google Sheets: File → Download → CSV.",
             ) or []
         with info_col:
             st.markdown("""
             <div class="card">
-              <div class="card-title">What we check</div>
-              <div style="font-size:12px;color:#8B949E;line-height:2">
-                ✅ &nbsp;Completeness<br>
-                ✅ &nbsp;Uniqueness & entity duplicates<br>
-                ✅ &nbsp;Format & range validity<br>
-                ✅ &nbsp;Cross-file referential integrity<br>
-                ✅ &nbsp;Process flow gaps<br>
-                ✅ &nbsp;Semantic understanding<br>
-                ✅ &nbsp;Business impact estimation
+              <div class="card-title">What you'll get</div>
+              <div style="font-size:12px;color:#8B949E;line-height:2.2">
+                📊 &nbsp;A score for your data (A–F)<br>
+                🔴 &nbsp;Problems highlighted in your file<br>
+                💬 &nbsp;Plain-English explanation<br>
+                🛠️ &nbsp;How to fix each issue<br>
+                💰 &nbsp;Business impact estimate
               </div>
             </div>
             """, unsafe_allow_html=True)
-
-    with tab_db:
-        render_db_connector()
+    else:
+        st.markdown("""
+        <div class="section-header" style="margin-bottom:6px">Data Source</div>
+        """, unsafe_allow_html=True)
+        tab_files, tab_db = st.tabs(["📁  Upload CSV Files", "🔌  Connect to Database"])
+        with tab_files:
+            up_col, info_col = st.columns([3, 1], gap="medium")
+            with up_col:
+                uploaded_files = st.file_uploader(
+                    "Drop your CSV files here — up to 5 related files from the same business process",
+                    type=["csv"], accept_multiple_files=True,
+                    help="Related files: e.g. orders + customers + invoices from the same pipeline.",
+                ) or []
+            with info_col:
+                st.markdown("""
+                <div class="card">
+                  <div class="card-title">What we check</div>
+                  <div style="font-size:12px;color:#8B949E;line-height:2">
+                    ✅ &nbsp;Completeness<br>
+                    ✅ &nbsp;Uniqueness & entity duplicates<br>
+                    ✅ &nbsp;Format & range validity<br>
+                    ✅ &nbsp;Cross-file referential integrity<br>
+                    ✅ &nbsp;Process flow gaps<br>
+                    ✅ &nbsp;Semantic understanding<br>
+                    ✅ &nbsp;Business impact estimation
+                  </div>
+                </div>
+                """, unsafe_allow_html=True)
+        with tab_db:
+            render_db_connector()
 
     if not uploaded_files:
-        st.markdown("""
-        <div style="text-align:center;padding:56px 0;color:#484F58">
-          <div style="font-size:40px">☝</div>
-          <div style="font-size:14px;margin-top:10px">Upload CSV files to get started</div>
-        </div>
-        """, unsafe_allow_html=True)
+        if simple:
+            st.markdown("""
+            <div style="text-align:center;padding:48px 0;color:#484F58">
+              <div style="font-size:48px">☝️</div>
+              <div style="font-size:16px;font-weight:600;color:#8B949E;margin-top:12px">
+                Upload your file above to get started
+              </div>
+              <div style="font-size:13px;color:#484F58;margin-top:6px">
+                Free · No account needed · Results in 30 seconds
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div style="text-align:center;padding:56px 0;color:#484F58">
+              <div style="font-size:40px">☝</div>
+              <div style="font-size:14px;margin-top:10px">Upload CSV files to get started</div>
+            </div>
+            """, unsafe_allow_html=True)
         return
 
     if len(uploaded_files) > 5:
