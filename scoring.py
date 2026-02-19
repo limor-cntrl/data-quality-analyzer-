@@ -98,9 +98,9 @@ def calculate_scores(dfs: dict, orphan_result: dict, duplicate_result: dict,
 
             elif re.search(r"(date|time|created|updated|timestamp)", col, re.IGNORECASE):
                 try:
-                    parsed    = pd.to_datetime(df[col], errors="coerce")
+                    parsed    = pd.to_datetime(df[col], errors="coerce", utc=True)
                     fail_rate = parsed.isna().sum() / len(df)
-                    future    = (parsed > pd.Timestamp.now()).sum()
+                    future    = (parsed > pd.Timestamp.now(tz="UTC")).sum()
                     score     = 100 - fail_rate * 60 - (future / len(df)) * 30
                     col_scores.append(_cap(round(score, 1)))
                     if future:
@@ -140,7 +140,7 @@ def calculate_scores(dfs: dict, orphan_result: dict, duplicate_result: dict,
         for col in df.columns:
             if re.search(r"(date|time|created|updated)", col, re.IGNORECASE):
                 try:
-                    parsed = pd.to_datetime(df[col], errors="coerce").dropna()
+                    parsed = pd.to_datetime(df[col], errors="coerce", utc=True).dropna()
                     if len(parsed):
                         date_series.append(parsed)
                 except Exception:
