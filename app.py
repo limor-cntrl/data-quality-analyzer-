@@ -19,7 +19,8 @@ st.set_page_config(
 
 from data_quality_engine import detect_join_keys, check_orphan_records, check_entity_duplicates, check_process_gaps
 from scoring import calculate_scores, generate_recommendations, score_label, overall_grade
-from semantic import detect_entity, detect_domain, estimate_monetary_impact, generate_narrative, classify_columns
+from semantic import (detect_entity, detect_domain, estimate_monetary_impact,
+                      generate_narrative, classify_columns)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CSS — Dark tactical dashboard
@@ -495,6 +496,506 @@ def save_lead(name, company, email, role):
 # Analysis runner
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Data preview helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def find_orphan_rows(df: pd.DataFrame, name: str, dfs: dict, joins: list) -> tuple:
+    """Return (set of orphan row indices, set of orphan column names) for this file."""
+    orphan_indices, orphan_cols = set(), set()
+    for j in joins:
+        if j["file_a"] == name:
+            col_self, other_name, col_other = j.get("col_a", j["key"]), j["file_b"], j.get("col_b", j["key"])
+        elif j["file_b"] == name:
+            col_self, other_name, col_other = j.get("col_b", j["key"]), j["file_a"], j.get("col_a", j["key"])
+        else:
+            continue
+        if col_self not in df.columns or other_name not in dfs or col_other not in dfs[other_name].columns:
+            continue
+        other_vals = set(dfs[other_name][col_other].dropna().astype(str))
+        mask = ~df[col_self].astype(str).isin(other_vals)
+        orphan_indices.update(df.index[mask])
+        orphan_cols.add(col_self)
+    return orphan_indices, orphan_cols
+
+
+def find_dup_rows(df: pd.DataFrame) -> set:
+    """Return indices of ALL rows that are exact duplicates of another row."""
+    return set(df.index[df.duplicated(keep=False)])
+
+
+def find_invalid_cells(df: pd.DataFrame) -> set:
+    """Return set of (row_idx, col) for cells with validity issues."""
+    invalid = set()
+    for col in df.columns:
+        if re.search(r"(amount|price|cost|revenue|salary|fee|total)", col, re.IGNORECASE):
+            if pd.api.types.is_numeric_dtype(df[col]):
+                for idx in df.index[df[col] < 0]:
+                    invalid.add((idx, col))
+        if re.search(r"(date|time|created|updated|timestamp)", col, re.IGNORECASE):
+            try:
+                parsed = pd.to_datetime(df[col], errors="coerce")
+                for idx in parsed.index[parsed > pd.Timestamp.now()]:
+                    invalid.add((idx, col))
+                for idx in df.index[parsed.isna() & df[col].notna()]:
+                    invalid.add((idx, col))
+            except Exception:
+                pass
+    return invalid
+
+
+def render_data_preview(dfs: dict, joins: list):
+    """Render annotated data preview with problem cells highlighted."""
+    st.markdown('<hr class="dq-divider">', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="section-header">Annotated Data Preview</div>
+    <div class="section-title">Your Data — Problems Highlighted</div>
+    <div class="section-sub">
+      Diagnosis applied directly to your data. Every highlighted cell is a real issue found in your files.
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Legend
+    st.markdown("""
+    <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:16px;
+                padding:12px 16px;background:#161B22;border:1px solid #21262D;border-radius:8px">
+      <span style="font-size:12px;color:#F85149">🔴&nbsp; Missing / null value</span>
+      <span style="font-size:12px;color:#F0883E">🟠&nbsp; Orphan record (no match in related file)</span>
+      <span style="font-size:12px;color:#58A6FF">🔵&nbsp; Exact duplicate row</span>
+      <span style="font-size:12px;color:#E3B341">🟡&nbsp; Invalid value (negative amount / bad date)</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    tabs = st.tabs([f"📄 {name}" for name in dfs.keys()])
+
+    for tab, (name, df) in zip(tabs, dfs.items()):
+        with tab:
+            preview = df.head(100).reset_index(drop=True)
+
+            orphan_indices, orphan_cols = find_orphan_rows(df.head(100), name, dfs, joins)
+            dup_indices    = find_dup_rows(preview)
+            invalid_cells  = find_invalid_cells(preview)
+
+            # Counts for metrics
+            null_count   = int(preview.isna().sum().sum())
+            orphan_count = len(orphan_indices)
+            dup_count    = len(dup_indices)
+            invalid_count = len(invalid_cells)
+
+            # Metrics row
+            m1, m2, m3, m4, m5 = st.columns(5)
+            m1.metric("Rows shown",     f"{len(preview):,} / {len(df):,}")
+            m2.metric("Missing values", null_count,    delta=f"-{null_count}"    if null_count    else None, delta_color="inverse")
+            m3.metric("Orphan rows",    orphan_count,  delta=f"-{orphan_count}"  if orphan_count  else None, delta_color="inverse")
+            m4.metric("Duplicate rows", dup_count,     delta=f"-{dup_count}"     if dup_count     else None, delta_color="inverse")
+            m5.metric("Invalid cells",  invalid_count, delta=f"-{invalid_count}" if invalid_count else None, delta_color="inverse")
+
+            # Build styler
+            def _make_style_fn(preview, orphan_indices, orphan_cols, dup_indices, invalid_cells):
+                def style_row(row):
+                    styles = []
+                    idx = row.name
+                    for col in preview.columns:
+                        val = row[col]
+                        is_null = pd.isna(val) or (isinstance(val, str) and val.strip() == "")
+                        is_orphan_col = col in orphan_cols
+                        is_orphan_row = idx in orphan_indices
+                        is_dup        = idx in dup_indices
+                        is_invalid    = (idx, col) in invalid_cells
+
+                        if is_null:
+                            styles.append("background-color:#3d0f0f;color:#F85149;font-weight:700")
+                        elif is_orphan_row and is_orphan_col:
+                            styles.append("background-color:#2d1500;color:#F0883E;font-weight:700")
+                        elif is_orphan_row:
+                            styles.append("background-color:#1a0d00;color:#c97a50")
+                        elif is_dup:
+                            styles.append("background-color:#0d1a2d;color:#58A6FF")
+                        elif is_invalid:
+                            styles.append("background-color:#2a1d00;color:#E3B341;font-weight:700")
+                        else:
+                            styles.append("")
+                    return styles
+                return style_row
+
+            styled = preview.style.apply(
+                _make_style_fn(preview, orphan_indices, orphan_cols, dup_indices, invalid_cells),
+                axis=1
+            )
+
+            st.dataframe(styled, use_container_width=True, height=420)
+
+            if null_count == 0 and orphan_count == 0 and dup_count == 0 and invalid_count == 0:
+                st.success("✅ No issues detected in the visible rows of this file.")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Column profiler
+# ─────────────────────────────────────────────────────────────────────────────
+
+COL_ICONS = {
+    "id": "🔑", "monetary": "💰", "temporal": "📅",
+    "status": "🏷", "personal": "👤", "geographic": "🌍",
+    "quantity": "🔢", "other": "📊",
+}
+
+def profile_columns(df: pd.DataFrame) -> list:
+    """Generate a rich profile for every column."""
+    col_types = classify_columns(df)
+    profiles  = []
+
+    for col in df.columns:
+        sem   = col_types.get(col, "other")
+        s     = df[col]
+        total = len(df)
+        nulls = int(s.isna().sum())
+        null_pct  = round(nulls / total * 100, 1) if total else 0
+        fill_pct  = round(100 - null_pct, 1)
+        uniq      = int(s.nunique())
+        non_null  = s.dropna()
+
+        p = {
+            "name": col, "sem": sem, "icon": COL_ICONS.get(sem, "📊"),
+            "nulls": nulls, "null_pct": null_pct, "fill_pct": fill_pct,
+            "unique": uniq, "total": total,
+        }
+
+        if pd.api.types.is_numeric_dtype(s):
+            p["dtype"] = "numeric"
+            if len(non_null):
+                p["min"]  = round(float(non_null.min()),  2)
+                p["max"]  = round(float(non_null.max()),  2)
+                p["mean"] = round(float(non_null.mean()), 2)
+                p["zeros"]    = int((non_null == 0).sum())
+                p["negatives"]= int((non_null < 0).sum())
+        elif re.search(r"(date|time|created|updated|timestamp)", col, re.IGNORECASE):
+            p["dtype"] = "datetime"
+            try:
+                parsed = pd.to_datetime(s, errors="coerce").dropna()
+                if len(parsed):
+                    p["date_min"]   = str(parsed.min().date())
+                    p["date_max"]   = str(parsed.max().date())
+                    p["range_days"] = (parsed.max() - parsed.min()).days
+                    p["future"]     = int((parsed > pd.Timestamp.now()).sum())
+            except Exception:
+                pass
+        else:
+            p["dtype"] = "text"
+            if len(non_null):
+                vc = non_null.astype(str).value_counts().head(3)
+                p["top_values"] = list(vc.index)
+                p["avg_len"]    = round(non_null.astype(str).str.len().mean(), 1)
+
+        # Column quality score
+        q = 100
+        q -= min(40, null_pct * 0.9)
+        if uniq == 1 and total > 5:     q -= 25
+        if p.get("negatives", 0) > 0:   q -= 20
+        if p.get("future", 0) > 0:      q -= 15
+        p["quality"] = max(0, round(q))
+
+        profiles.append(p)
+    return profiles
+
+
+def render_column_profiler(dfs: dict):
+    """Render a column-level profiler for each file."""
+    st.markdown('<hr class="dq-divider">', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="section-header">Column Intelligence</div>
+    <div class="section-title">Column-Level Profile</div>
+    <div class="section-sub">
+      Data type, fill rate, distribution, and quality score for every column in your data.
+    </div>
+    """, unsafe_allow_html=True)
+
+    tabs = st.tabs([f"📄 {name}" for name in dfs.keys()])
+    for tab, (fname, df) in zip(tabs, dfs.items()):
+        with tab:
+            profiles = profile_columns(df)
+            # Build one HTML block with CSS grid
+            cards = []
+            for p in profiles:
+                qc  = score_color(p["quality"])
+                fc  = score_color(p["fill_pct"])
+                dtype_label = p["dtype"].upper()
+
+                # Stats section varies by type
+                if p["dtype"] == "numeric" and "min" in p:
+                    neg_warn = (f'<div style="color:#F85149;font-size:11px;margin-top:6px">'
+                                f'⚠ {p["negatives"]} negative values</div>'
+                                if p.get("negatives", 0) > 0 else "")
+                    stats = f"""
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;margin-top:10px">
+                      <div style="text-align:center;background:#0D1117;border-radius:4px;padding:5px">
+                        <div style="color:#6E7681;font-size:10px">min</div>
+                        <div style="color:#E6EDF3;font-weight:700;font-size:12px;font-family:monospace">{p['min']:,}</div>
+                      </div>
+                      <div style="text-align:center;background:#0D1117;border-radius:4px;padding:5px">
+                        <div style="color:#6E7681;font-size:10px">avg</div>
+                        <div style="color:#E6EDF3;font-weight:700;font-size:12px;font-family:monospace">{p['mean']:,}</div>
+                      </div>
+                      <div style="text-align:center;background:#0D1117;border-radius:4px;padding:5px">
+                        <div style="color:#6E7681;font-size:10px">max</div>
+                        <div style="color:#E6EDF3;font-weight:700;font-size:12px;font-family:monospace">{p['max']:,}</div>
+                      </div>
+                    </div>{neg_warn}"""
+                elif p["dtype"] == "datetime" and "date_min" in p:
+                    fut = (f'<div style="color:#F85149;font-size:11px;margin-top:4px">⚠ {p["future"]} future dates</div>'
+                           if p.get("future", 0) > 0 else "")
+                    stats = f"""
+                    <div style="margin-top:10px;font-size:11px;color:#8B949E">
+                      <div>{p['date_min']} → {p['date_max']}</div>
+                      <div style="color:#6E7681">{p.get('range_days',0):,} day range</div>
+                      {fut}
+                    </div>"""
+                else:
+                    tops = p.get("top_values", [])
+                    chips = " ".join(
+                        f'<span style="background:#21262D;color:#79C0FF;font-size:10px;padding:1px 7px;border-radius:4px;font-family:monospace">{v[:20]}</span>'
+                        for v in tops
+                    )
+                    stats = f'<div style="margin-top:8px;line-height:2">{chips}</div>'
+
+                uniq_pct = round(p["unique"] / p["total"] * 100, 0) if p["total"] else 0
+
+                cards.append(f"""
+                <div style="background:#161B22;border:1px solid #21262D;border-radius:10px;padding:16px">
+                  <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px">
+                    <div style="display:flex;align-items:center;gap:8px">
+                      <span style="font-size:15px">{p['icon']}</span>
+                      <div>
+                        <div style="font-size:13px;font-weight:700;color:#E6EDF3;font-family:monospace">{p['name']}</div>
+                        <div style="font-size:10px;color:#6E7681;margin-top:1px">{dtype_label} · {p['unique']:,} unique ({uniq_pct:.0f}%)</div>
+                      </div>
+                    </div>
+                    <span style="font-size:13px;font-weight:800;color:{qc};font-family:monospace">{p['quality']}</span>
+                  </div>
+                  <div>
+                    <div style="display:flex;justify-content:space-between;font-size:10px;color:#6E7681;margin-bottom:3px">
+                      <span>Filled</span><span style="color:{fc}">{p['fill_pct']}%</span>
+                    </div>
+                    <div style="background:#21262D;border-radius:999px;height:5px;overflow:hidden">
+                      <div style="width:{p['fill_pct']}%;background:{fc};height:5px;border-radius:999px"></div>
+                    </div>
+                    {f'<div style="font-size:10px;color:#F85149;margin-top:3px">⚠ {p["nulls"]:,} missing values</div>' if p["nulls"] > 0 else ""}
+                  </div>
+                  {stats}
+                </div>""")
+
+            # Render as CSS grid (3 columns)
+            grid = f"""
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:8px">
+              {''.join(cards)}
+            </div>"""
+            st.markdown(grid, unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Executive summary
+# ─────────────────────────────────────────────────────────────────────────────
+
+def render_executive_summary(R: dict):
+    scores   = R["score_data"]["scores"]
+    details  = R["score_data"]["details"]
+    overall  = scores["overall"]
+    domain   = R["domain"]
+    lbl, _   = score_label(overall)
+    grade, _ = overall_grade(overall)
+    bench    = details.get("benchmark", "")
+
+    # Count total issues
+    n_orphans = sum(f["orphan_count"] for f in R["orphans"].get("findings", []))
+    n_dupes   = sum(f["duplicate_count"] for f in R["dupes"].get("findings", []))
+    n_gaps    = sum(f["missing_count"] for f in R["gaps"].get("findings", []))
+    total_issues = n_orphans + n_dupes + n_gaps
+    rows_total   = sum(len(df) for df in R["dfs"].values())
+
+    if total_issues == 0:
+        summary = (f"We analyzed your {domain} dataset ({len(R['dfs'])} files, {rows_total:,} rows) "
+                   f"and found no critical integration issues. Your data quality score is <strong>{overall}/100</strong> — {lbl}.")
+        color = "#3FB950"
+    else:
+        parts = []
+        if n_orphans: parts.append(f"{n_orphans:,} orphan records with no matching counterpart")
+        if n_dupes:   parts.append(f"{n_dupes} duplicate entities")
+        if n_gaps:    parts.append(f"{n_gaps:,} records stalled in the pipeline")
+        issues_str = " · ".join(parts)
+        summary = (
+            f"We analyzed your <strong>{domain}</strong> pipeline "
+            f"(<strong>{len(R['dfs'])} files · {rows_total:,} rows</strong>) and found "
+            f"<strong style='color:#F85149'>{total_issues:,} issues</strong>: {issues_str}. "
+            f"Data quality score: <strong style='color:{score_color(overall)}'>{overall}/100 — Grade {grade}</strong>. "
+            f"{details.get('urgency','')}"
+        )
+        color = "#F85149"
+
+    st.markdown(f"""
+    <div style="background:linear-gradient(135deg,#161B22,#0D1117);border:1px solid {color};
+                border-radius:12px;padding:20px 24px;margin-bottom:24px;
+                border-left:4px solid {color}">
+      <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;
+                  color:{color};margin-bottom:8px">Executive Summary</div>
+      <div style="font-size:14px;color:#C9D1D9;line-height:1.7">{summary}</div>
+      <div style="font-size:12px;color:#484F58;margin-top:8px">{bench}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Missing file suggestions
+# ─────────────────────────────────────────────────────────────────────────────
+
+DOMAIN_EXPECTED = {
+    "E-commerce":  ["orders", "customers", "products", "invoices", "payments", "shipments"],
+    "CRM":         ["leads", "contacts", "opportunities", "accounts", "activities"],
+    "Finance":     ["transactions", "invoices", "payments", "accounts", "ledger"],
+    "HR":          ["employees", "departments", "payroll", "reviews"],
+    "Marketing":   ["campaigns", "leads", "conversions", "contacts"],
+    "Operations":  ["requests", "inventory", "shipments", "suppliers"],
+}
+
+def render_missing_file_suggestions(dfs: dict, domain: str):
+    expected = DOMAIN_EXPECTED.get(domain, [])
+    if not expected:
+        return
+    present = " ".join(dfs.keys()).lower()
+    missing = [e for e in expected if e.rstrip("s") not in present and e not in present]
+    if not missing:
+        return
+    chips = "".join(
+        f'<span style="background:#161B22;border:1px dashed #30363D;border-radius:6px;'
+        f'padding:4px 12px;font-size:12px;color:#6E7681;margin:4px 4px 0 0;display:inline-block">'
+        f'+ {e}.csv</span>'
+        for e in missing[:4]
+    )
+    st.markdown(f"""
+    <div style="background:#0D1117;border:1px dashed #30363D;border-radius:10px;
+                padding:16px 20px;margin-bottom:16px">
+      <div style="font-size:12px;font-weight:700;color:#6E7681;margin-bottom:8px">
+        💡 Add these files for a more complete {domain} analysis:
+      </div>
+      <div>{chips}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HTML report export
+# ─────────────────────────────────────────────────────────────────────────────
+
+def generate_html_report(R: dict) -> str:
+    scores  = R["score_data"]["scores"]
+    details = R["score_data"]["details"]
+    overall = scores["overall"]
+    grade, gc = overall_grade(overall)
+    lbl, lc   = score_label(overall)
+    now_str   = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    rows_total = sum(len(df) for df in R["dfs"].values())
+    bench = details.get("benchmark", "")
+
+    # Findings HTML
+    findings_html = ""
+    for f in R["orphans"].get("findings", [])[:2]:
+        pct = f["pct_of_source"]
+        findings_html += f"""
+        <div style="border-left:4px solid #F85149;padding:12px 16px;margin-bottom:12px;background:#1a0808;border-radius:4px">
+          <div style="font-weight:700;color:#F85149">ORPHAN RECORDS — {f['direction']}</div>
+          <div style="font-size:22px;font-weight:900;color:#F85149;margin:4px 0">{f['orphan_count']:,} records ({pct}%) unmatched</div>
+          <div style="color:#999">Key: {f['key']} · Examples: {', '.join(str(v) for v in f['example_values'][:3])}</div>
+        </div>"""
+    for f in R["dupes"].get("findings", [])[:1]:
+        findings_html += f"""
+        <div style="border-left:4px solid #F0883E;padding:12px 16px;margin-bottom:12px;background:#1a0d00;border-radius:4px">
+          <div style="font-weight:700;color:#F0883E">ENTITY DUPLICATES — {f['file']}</div>
+          <div style="font-size:22px;font-weight:900;color:#F0883E;margin:4px 0">{f['duplicate_count']} duplicate entities</div>
+          <div style="color:#999">Type: {f['type']}</div>
+        </div>"""
+    for f in R["gaps"].get("findings", [])[:1]:
+        pct = f["pct_of_upstream"]
+        findings_html += f"""
+        <div style="border-left:4px solid #E3B341;padding:12px 16px;margin-bottom:12px;background:#1a1500;border-radius:4px">
+          <div style="font-weight:700;color:#E3B341">PROCESS GAP — {f['stage_from']} → {f['stage_to']}</div>
+          <div style="font-size:22px;font-weight:900;color:#E3B341;margin:4px 0">{f['missing_count']:,} records ({pct}%) stalled</div>
+        </div>"""
+
+    # Dimension rows
+    dim_rows = ""
+    for key, label, _ in DIMS:
+        val = scores.get(key)
+        c   = score_color(val)
+        lbl_d, _ = score_label(val)
+        w   = int(R["score_data"]["weights"].get(key, 0) * 100)
+        v   = f"{val:.0f}" if val is not None else "N/A"
+        dim_rows += f"""
+        <tr>
+          <td style="padding:8px 12px;color:#C9D1D9">{label}</td>
+          <td style="padding:8px 12px;color:#6E7681">{w}%</td>
+          <td style="padding:8px 12px;font-weight:700;color:{c};font-family:monospace">{v}</td>
+          <td style="padding:8px 12px;color:{c}">{lbl_d}</td>
+        </tr>"""
+
+    # Recommendations HTML
+    recs_html = ""
+    for rec in R["recs"]:
+        s = SEV.get(rec["severity"], SEV["medium"])
+        steps = "".join(f"<li style='margin-bottom:6px;color:#C9D1D9'>{st_}</li>" for st_ in rec["full_steps"])
+        recs_html += f"""
+        <div style="background:{s['bg']};border:1px solid {s['border']};border-radius:8px;padding:16px;margin-bottom:12px">
+          <div style="font-size:15px;font-weight:700;color:#E6EDF3;margin-bottom:8px">{rec['icon']} {rec['title']}</div>
+          <div style="font-size:13px;color:#8B949E;margin-bottom:10px"><strong style="color:#C9D1D9">Root cause:</strong> {rec['full_root_cause']}</div>
+          <ol style="font-size:13px;padding-left:16px;margin:0 0 10px">{steps}</ol>
+          <div style="font-size:12px;color:#6E7681">⏱ {rec['effort']} &nbsp;|&nbsp; 🛡 {rec['prevention']}</div>
+        </div>"""
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Data Quality Report — {now_str}</title>
+<style>
+  body {{ font-family: Inter, system-ui, sans-serif; background: #0D1117; color: #E6EDF3; max-width: 860px; margin: 0 auto; padding: 40px 24px; }}
+  h1 {{ font-size: 32px; font-weight: 900; margin-bottom: 4px; }}
+  h2 {{ font-size: 18px; font-weight: 700; color: #8B949E; text-transform: uppercase; letter-spacing: 1px; margin: 32px 0 12px; border-bottom: 1px solid #21262D; padding-bottom: 6px; }}
+  table {{ width: 100%; border-collapse: collapse; background: #161B22; border-radius: 8px; overflow: hidden; }}
+  th {{ background: #21262D; padding: 10px 12px; text-align: left; font-size: 12px; color: #6E7681; text-transform: uppercase; letter-spacing: 0.5px; }}
+  tr:nth-child(even) {{ background: #0D1117; }}
+  .score-big {{ font-size: 72px; font-weight: 900; font-family: monospace; color: {gc}; }}
+  .badge {{ display: inline-block; background: #21262D; border-radius: 999px; padding: 4px 14px; font-size: 12px; color: #8B949E; }}
+  .footer {{ margin-top: 48px; font-size: 12px; color: #484F58; border-top: 1px solid #21262D; padding-top: 16px; }}
+</style>
+</head>
+<body>
+<div style="border-top:3px solid {gc};border-radius:4px;padding-top:24px;margin-bottom:32px">
+  <div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#6E7681;margin-bottom:8px">🔬 Data Quality Intelligence Report</div>
+  <h1>Data Quality Score: <span style="color:{gc}">{overall}/100</span></h1>
+  <div style="color:{gc};font-size:18px;font-weight:700">{lbl} · Grade {grade}</div>
+  <div class="badge" style="margin-top:8px">{bench}</div>
+  <div style="font-size:13px;color:#6E7681;margin-top:12px">
+    Generated: {now_str} · Domain: {R['domain']} · {len(R['dfs'])} files · {rows_total:,} rows
+  </div>
+</div>
+
+<h2>Dimension Scores</h2>
+<table>
+  <tr><th>Dimension</th><th>Weight</th><th>Score</th><th>Status</th></tr>
+  {dim_rows}
+</table>
+
+<h2>Critical Findings</h2>
+{findings_html if findings_html else '<p style="color:#3FB950">✅ No critical issues found.</p>'}
+
+<h2>Full Remediation Plan</h2>
+{recs_html if recs_html else '<p style="color:#3FB950">✅ No recommendations — data looks solid.</p>'}
+
+<div class="footer">
+  Generated by DataQuality.ai · dataqualityanalyzer.streamlit.app
+</div>
+</body>
+</html>"""
+
+
 def run_analysis(uploaded_files) -> tuple:
     dfs, errors = {}, []
     for f in uploaded_files:
@@ -648,6 +1149,30 @@ def main():
     grade, grade_color = overall_grade(overall)
     lbl, lbl_color     = score_label(overall)
     recs    = R["recs"]
+
+    # ── EXECUTIVE SUMMARY ────────────────────────────────────────────────────
+    render_executive_summary(R)
+
+    # ── MISSING FILE SUGGESTIONS ─────────────────────────────────────────────
+    render_missing_file_suggestions(R["dfs"], R["domain"])
+
+    # ── EXPORT BUTTON ────────────────────────────────────────────────────────
+    html_report = generate_html_report(R)
+    _, dl_col, _ = st.columns([3, 2, 3])
+    with dl_col:
+        st.download_button(
+            label="⬇ Download Full Report (HTML)",
+            data=html_report,
+            file_name=f"data_quality_report_{datetime.now().strftime('%Y%m%d_%H%M')}.html",
+            mime="text/html",
+            use_container_width=True,
+        )
+
+    # ── SECTION 0: DATA PREVIEW ───────────────────────────────────────────────
+    render_data_preview(R["dfs"], R["joins"])
+
+    # ── COLUMN PROFILER ───────────────────────────────────────────────────────
+    render_column_profiler(R["dfs"])
 
     st.markdown('<hr class="dq-divider">', unsafe_allow_html=True)
 

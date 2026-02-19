@@ -59,13 +59,18 @@ ENTITY_SIGNALS = {
 
 def detect_entity(name: str, df: pd.DataFrame) -> str:
     """Detect what real-world entity a dataframe represents."""
-    name_lower = name.lower()
+    name_lower  = name.lower()
     cols_lower  = " ".join(df.columns).lower()
-    combined    = name_lower + " " + cols_lower
 
     scores = {}
     for entity, signals in ENTITY_SIGNALS.items():
-        scores[entity] = sum(1 for s in signals if s in combined)
+        score = 0
+        for s in signals:
+            # File name match weights 3× more than column matches
+            if s in name_lower:
+                score += 3
+            score += cols_lower.count(s)   # count occurrences in column names
+        scores[entity] = score
 
     best = max(scores, key=scores.get)
     return best if scores[best] > 0 else "dataset"
