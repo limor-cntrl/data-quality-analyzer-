@@ -7,7 +7,8 @@ Your data looks clean. It isn't.
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-import time, csv, os, re
+from plotly.subplots import make_subplots
+import time, csv, os, re, math
 from datetime import datetime
 
 st.set_page_config(
@@ -668,6 +669,15 @@ def profile_columns(df: pd.DataFrame) -> list:
                 p["mean"] = round(float(non_null.mean()), 2)
                 p["zeros"]    = int((non_null == 0).sum())
                 p["negatives"]= int((non_null < 0).sum())
+                if len(non_null) > 4:
+                    p["median"] = round(float(non_null.median()), 2)
+                    p["p25"]    = round(float(non_null.quantile(0.25)), 2)
+                    p["p75"]    = round(float(non_null.quantile(0.75)), 2)
+                    _q25, _q75  = non_null.quantile(0.25), non_null.quantile(0.75)
+                    _iqr = _q75 - _q25
+                    if _iqr > 0:
+                        p["outliers"] = int(((non_null < _q25 - 1.5*_iqr) |
+                                             (non_null > _q75 + 1.5*_iqr)).sum())
         elif re.search(r"(date|time|created|updated|timestamp)", col, re.IGNORECASE):
             p["dtype"] = "datetime"
             try:
@@ -722,9 +732,14 @@ def render_column_profiler(dfs: dict):
 
                 # Stats section varies by type
                 if p["dtype"] == "numeric" and "min" in p:
-                    neg_warn = (f'<div style="color:#F85149;font-size:11px;margin-top:6px">'
-                                f'⚠ {p["negatives"]} negative values</div>'
-                                if p.get("negatives", 0) > 0 else "")
+                    neg_warn     = (f'<div style="color:#F85149;font-size:11px;margin-top:6px">'
+                                    f'⚠ {p["negatives"]} negative values</div>'
+                                    if p.get("negatives", 0) > 0 else "")
+                    outlier_warn = (f'<div style="color:#F0883E;font-size:11px;margin-top:4px">'
+                                    f'◈ {p["outliers"]} outliers detected (IQR)</div>'
+                                    if p.get("outliers", 0) > 0 else "")
+                    mid_lbl = "median" if "median" in p else "avg"
+                    mid_val = p.get("median", p.get("mean", 0))
                     stats = f"""
                     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;margin-top:10px">
                       <div style="text-align:center;background:#0D1117;border-radius:4px;padding:5px">
@@ -732,14 +747,14 @@ def render_column_profiler(dfs: dict):
                         <div style="color:#E6EDF3;font-weight:700;font-size:12px;font-family:monospace">{p['min']:,}</div>
                       </div>
                       <div style="text-align:center;background:#0D1117;border-radius:4px;padding:5px">
-                        <div style="color:#6E7681;font-size:10px">avg</div>
-                        <div style="color:#E6EDF3;font-weight:700;font-size:12px;font-family:monospace">{p['mean']:,}</div>
+                        <div style="color:#6E7681;font-size:10px">{mid_lbl}</div>
+                        <div style="color:#E6EDF3;font-weight:700;font-size:12px;font-family:monospace">{mid_val:,}</div>
                       </div>
                       <div style="text-align:center;background:#0D1117;border-radius:4px;padding:5px">
                         <div style="color:#6E7681;font-size:10px">max</div>
                         <div style="color:#E6EDF3;font-weight:700;font-size:12px;font-family:monospace">{p['max']:,}</div>
                       </div>
-                    </div>{neg_warn}"""
+                    </div>{neg_warn}{outlier_warn}"""
                 elif p["dtype"] == "datetime" and "date_min" in p:
                     fut = (f'<div style="color:#F85149;font-size:11px;margin-top:4px">⚠ {p["future"]} future dates</div>'
                            if p.get("future", 0) > 0 else "")
@@ -789,6 +804,254 @@ def render_column_profiler(dfs: dict):
               {''.join(cards)}
             </div>"""
             st.markdown(grid, unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Distribution histograms
+# ─────────────────────────────────────────────────────────────────────────────
+
+def render_distributions(dfs: dict):
+    """Show Plotly histograms for all numeric columns, grouped by file."""
+    has_numeric = any(
+        pd.api.types.is_numeric_dtype(df[col])
+        for df in dfs.values() for col in df.columns
+    )
+    if not has_numeric:
+        return
+
+    st.markdown('<hr class="dq-divider">', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="section-header">Distribution Analysis</div>
+    <div class="section-title">Column Distributions</div>
+    <div class="section-sub">
+      Value distribution, outliers, and skewness for every numeric column.
+      Green dashed line = mean. Orange bars = outlier-heavy columns. Red bars = negative monetary values.
+    </div>
+    """, unsafe_allow_html=True)
+
+    tabs = st.tabs([f"📄 {name}" for name in dfs.keys()])
+
+    for tab, (fname, df) in zip(tabs, dfs.items()):
+        with tab:
+            num_cols = [
+                c for c in df.columns
+                if pd.api.types.is_numeric_dtype(df[c]) and df[c].dropna().nunique() > 1
+            ]
+            if not num_cols:
+                st.info("No numeric columns with varied data in this file.")
+                continue
+
+            display_cols = num_cols[:9]
+            if len(num_cols) > 9:
+                st.caption(f"Showing first 9 of {len(num_cols)} numeric columns.")
+
+            cols_per_row = min(3, len(display_cols))
+            n_rows = math.ceil(len(display_cols) / cols_per_row)
+
+            subplot_titles = [f"<span style='font-size:11px;color:#8B949E'>{c}</span>"
+                              for c in display_cols]
+            fig = make_subplots(
+                rows=n_rows, cols=cols_per_row,
+                subplot_titles=subplot_titles,
+                vertical_spacing=0.14,
+                horizontal_spacing=0.06,
+            )
+
+            outlier_summary = []
+
+            for i, col in enumerate(display_cols):
+                row_pos = i // cols_per_row + 1
+                col_pos = i % cols_per_row + 1
+                data = df[col].dropna()
+
+                is_money = bool(re.search(
+                    r"(amount|price|cost|revenue|salary|fee|total|value)", col, re.IGNORECASE))
+                has_neg = is_money and bool((data < 0).any())
+
+                q25, q75 = data.quantile(0.25), data.quantile(0.75)
+                iqr = q75 - q25
+                n_outliers = 0
+                if iqr > 0:
+                    n_outliers = int(((data < q25 - 1.5*iqr) | (data > q75 + 1.5*iqr)).sum())
+                if n_outliers > 0:
+                    outlier_summary.append((col, n_outliers, round(n_outliers/len(data)*100, 1)))
+
+                bar_color = (
+                    "#F85149" if has_neg
+                    else "#F0883E" if n_outliers > len(data) * 0.05
+                    else "#58A6FF"
+                )
+
+                fig.add_trace(go.Histogram(
+                    x=data,
+                    nbinsx=min(25, data.nunique()),
+                    marker=dict(color=bar_color, opacity=0.85,
+                                line=dict(color="#0D1117", width=0.5)),
+                    name=col, showlegend=False,
+                    hovertemplate=f"<b>{col}</b><br>Range: %{{x}}<br>Count: %{{y}}<extra></extra>",
+                ), row=row_pos, col=col_pos)
+
+                # Mean reference line
+                fig.add_vline(
+                    x=float(data.mean()),
+                    line=dict(color="#3FB950", width=1.5, dash="dash"),
+                    row=row_pos, col=col_pos,
+                )
+
+            fig.update_layout(
+                paper_bgcolor="#0D1117",
+                plot_bgcolor="#0D1117",
+                height=220 * n_rows + 50,
+                margin=dict(t=55, b=10, l=40, r=10),
+                font={"family": "Inter", "color": "#8B949E", "size": 10},
+            )
+            fig.update_xaxes(showgrid=False, zeroline=False,
+                             tickfont=dict(size=9, color="#6E7681"), linecolor="#21262D")
+            fig.update_yaxes(showgrid=True, gridcolor="#21262D", zeroline=False,
+                             tickfont=dict(size=9, color="#6E7681"))
+            fig.update_annotations(font=dict(size=11, color="#8B949E"))
+
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+            if outlier_summary:
+                chips = " ".join(
+                    f'<span style="background:#2d1500;border:1px solid #F0883E;color:#F0883E;'
+                    f'font-size:11px;padding:2px 10px;border-radius:4px;font-family:monospace">'
+                    f'{col}: {n} outliers ({pct}%)</span>'
+                    for col, n, pct in outlier_summary[:6]
+                )
+                st.markdown(
+                    f'<div style="margin-top:4px;line-height:2.4">'
+                    f'<span style="font-size:11px;color:#6E7681;margin-right:8px">◈ Outliers:</span>'
+                    f'{chips}</div>',
+                    unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Quality heatmap (per-file × per-dimension)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _per_file_scores(dfs: dict, score_data: dict) -> dict:
+    """Compute approximate per-file scores for Completeness, Uniqueness, Validity, Timeliness."""
+    details = score_data["details"]
+    result = {}
+    for fname, df in dfs.items():
+        row = {}
+
+        # Completeness — exact (from scoring module)
+        row["Completeness"] = details["completeness_per_file"].get(fname, 100)
+
+        # Uniqueness — row-level dedup
+        total = len(df)
+        row["Uniqueness"] = round(len(df.drop_duplicates()) / total * 100, 1) if total else 100
+
+        # Validity — column-by-column approximation
+        col_scores = []
+        for col in df.columns:
+            non_null = df[col].dropna()
+            if len(non_null) == 0:
+                col_scores.append(0); continue
+            if pd.api.types.is_numeric_dtype(df[col]):
+                is_money = bool(re.search(
+                    r"(amount|price|cost|revenue|salary|fee|total|value)", col, re.IGNORECASE))
+                if is_money:
+                    neg = (df[col] < 0).sum()
+                    col_scores.append(max(0, 100 - neg / len(df) * 200))
+                elif len(non_null) > 10:
+                    q25, q75 = non_null.quantile(0.25), non_null.quantile(0.75)
+                    iqr = q75 - q25
+                    if iqr > 0:
+                        outliers = ((non_null < q25 - 3*iqr) | (non_null > q75 + 3*iqr)).sum()
+                        col_scores.append(max(0, 100 - outliers / len(non_null) * 120))
+                    else:
+                        col_scores.append(85)
+                else:
+                    col_scores.append(88)
+            elif re.search(r"(date|time|created|updated|timestamp)", col, re.IGNORECASE):
+                try:
+                    parsed = pd.to_datetime(df[col], errors="coerce")
+                    fail_rate = parsed.isna().sum() / len(df)
+                    future = (parsed > pd.Timestamp.now()).sum()
+                    col_scores.append(max(0, round(100 - fail_rate*60 - (future/len(df))*30, 1)))
+                except Exception:
+                    col_scores.append(70)
+            else:
+                col_scores.append(90)
+        row["Validity"] = round(sum(col_scores) / len(col_scores), 1) if col_scores else 85
+
+        # Timeliness — find latest date
+        date_vals = []
+        for col in df.columns:
+            if re.search(r"(date|time|created|updated)", col, re.IGNORECASE):
+                try:
+                    parsed = pd.to_datetime(df[col], errors="coerce").dropna()
+                    if len(parsed):
+                        date_vals.append(parsed)
+                except Exception:
+                    pass
+        if date_vals:
+            latest = pd.concat(date_vals).max()
+            days_old = (pd.Timestamp.now() - latest).days
+            if   days_old <   7: row["Timeliness"] = 95
+            elif days_old <  30: row["Timeliness"] = 82
+            elif days_old <  90: row["Timeliness"] = 65
+            elif days_old < 365: row["Timeliness"] = 45
+            else:                row["Timeliness"] = 25
+        else:
+            row["Timeliness"] = 40
+
+        result[fname] = row
+    return result
+
+
+def render_quality_heatmap(dfs: dict, score_data: dict):
+    """Render a per-file × per-dimension quality score heatmap."""
+    if len(dfs) < 2:
+        return
+
+    per_file = _per_file_scores(dfs, score_data)
+    dims  = ["Completeness", "Uniqueness", "Validity", "Timeliness"]
+    files = list(per_file.keys())
+
+    z    = [[per_file[f].get(d, 0)          for d in dims] for f in files]
+    text = [[f"{per_file[f].get(d, 0):.0f}" for d in dims] for f in files]
+
+    # Custom colorscale: red → yellow → green
+    colorscale = [
+        [0.00, "#3d0f0f"],
+        [0.50, "#2a1d00"],
+        [0.65, "#1a2a0a"],
+        [1.00, "#0a3a15"],
+    ]
+
+    fig = go.Figure(go.Heatmap(
+        z=z, x=dims, y=files,
+        colorscale=colorscale,
+        zmin=0, zmax=100,
+        text=text,
+        texttemplate="<b>%{text}</b>",
+        textfont={"size": 18, "family": "JetBrains Mono", "color": "#E6EDF3"},
+        showscale=True,
+        colorbar=dict(
+            thickness=12, len=0.8,
+            tickfont=dict(color="#6E7681", size=10),
+            bgcolor="#161B22", bordercolor="#21262D", borderwidth=1,
+            title=dict(text="Score", font=dict(color="#6E7681", size=10), side="right"),
+        ),
+        hovertemplate="<b>%{y}</b><br>%{x}: <b>%{z:.0f}</b><extra></extra>",
+    ))
+
+    fig.update_layout(
+        paper_bgcolor="#0D1117",
+        plot_bgcolor="#0D1117",
+        height=max(200, 90 * len(files) + 70),
+        margin=dict(t=30, b=10, l=20, r=60),
+        font={"family": "Inter", "color": "#8B949E"},
+        xaxis=dict(side="top", tickfont=dict(size=13, color="#C9D1D9"), tickangle=0),
+        yaxis=dict(tickfont=dict(size=12, color="#C9D1D9"), autorange="reversed"),
+    )
+
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1174,6 +1437,9 @@ def main():
     # ── COLUMN PROFILER ───────────────────────────────────────────────────────
     render_column_profiler(R["dfs"])
 
+    # ── DISTRIBUTIONS ─────────────────────────────────────────────────────────
+    render_distributions(R["dfs"])
+
     st.markdown('<hr class="dq-divider">', unsafe_allow_html=True)
 
     # ── SECTION 1: SCORE OVERVIEW ─────────────────────────────────────────────
@@ -1220,6 +1486,19 @@ def main():
                 f'⚠ -{details["integration_penalty"]} integration complexity penalty applied</div>',
                 unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── SECTION 1.5: QUALITY HEATMAP ──────────────────────────────────────────
+    if len(R["dfs"]) > 1:
+        st.markdown('<hr class="dq-divider">', unsafe_allow_html=True)
+        st.markdown("""
+        <div class="section-header">Per-File Breakdown</div>
+        <div class="section-title">Quality Score Heatmap</div>
+        <div class="section-sub">
+          Score by file and dimension. Darker cells = lower score = higher risk.
+          Each cell is independently calculated for that specific file.
+        </div>
+        """, unsafe_allow_html=True)
+        render_quality_heatmap(R["dfs"], R["score_data"])
 
     # ── SECTION 2: DATA MAP ────────────────────────────────────────────────────
     if len(R["dfs"]) > 1:
