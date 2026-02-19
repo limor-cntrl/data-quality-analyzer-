@@ -261,6 +261,21 @@ DIMS = [
 ]
 
 
+def _dl_png_btn(fig: go.Figure, filename: str, label: str = "⬇ Download PNG"):
+    """Render a small download button that exports a Plotly figure as PNG."""
+    try:
+        img_bytes = fig.to_image(format="png", scale=2)
+        st.download_button(
+            label=label,
+            data=img_bytes,
+            file_name=filename,
+            mime="image/png",
+            key=f"dl_{filename}_{id(fig)}",
+        )
+    except Exception:
+        pass  # kaleido not available — silently skip
+
+
 
 def make_speedometer(score: float) -> go.Figure:
     """Semicircle speedometer gauge — red left, green right."""
@@ -1301,6 +1316,7 @@ def render_distributions(dfs: dict):
             fig.update_annotations(font=dict(size=11, color="#8B949E"))
 
             st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            _dl_png_btn(fig, f"distributions_{fname}.png", "⬇ Download Column Distributions")
 
             if outlier_summary:
                 chips = " ".join(
@@ -1441,6 +1457,7 @@ def render_quality_heatmap(dfs: dict, score_data: dict):
     )
 
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    _dl_png_btn(fig, "quality_score_heatmap.png", "⬇ Download Quality Score Heatmap")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1864,8 +1881,9 @@ def main():
         </div>
         """, unsafe_allow_html=True)
         st.markdown('<div class="flow-section">', unsafe_allow_html=True)
-        st.plotly_chart(make_flow_map(R["dfs"], R["joins"], R["orphans"], R["gaps"]),
-                        use_container_width=True, config={"displayModeBar": False})
+        flow_fig = make_flow_map(R["dfs"], R["joins"], R["orphans"], R["gaps"])
+        st.plotly_chart(flow_fig, use_container_width=True, config={"displayModeBar": False})
+        _dl_png_btn(flow_fig, "data_pipeline_map.png", "⬇ Download Pipeline Map")
         st.markdown('</div>', unsafe_allow_html=True)
 
     # ── SECTION 3: WHAT YOUR DATA IS TELLING YOU ──────────────────────────────
