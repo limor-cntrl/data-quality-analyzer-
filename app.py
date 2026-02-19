@@ -1951,164 +1951,87 @@ def main():
     if "mode" not in st.session_state:
         st.session_state["mode"] = "simple"
 
-    st.markdown("""
-    <style>
-    div[data-testid="stHorizontalBlock"] .mode-card { cursor:pointer; }
-    </style>
-    """, unsafe_allow_html=True)
-
-    tog_l, tog_r, _ = st.columns([1, 1, 3])
+    tog_l, tog_r, _ = st.columns([1, 1, 4])
     with tog_l:
         simple_active = st.session_state["mode"] == "simple"
-        if simple_active:
-            s_style = "border:2px solid #4F46E5;background:#EEF2FF;"
-            s_color = "#4F46E5"
-        else:
-            s_style = "border:1px solid #30363D;background:#161B22;"
-            s_color = "#C9D1D9"
-        s_sub = "#4B5563" if simple_active else "#6E7681"
+        border = "2px solid #3FB950" if simple_active else "1px solid #30363D"
+        label_color = "#3FB950" if simple_active else "#6E7681"
         st.markdown(f"""
-        <div style="{s_style}border-radius:10px;padding:12px 16px;text-align:center;margin-bottom:4px">
-          <div style="font-size:18px">🟢</div>
-          <div style="font-size:13px;font-weight:700;color:{s_color};margin-top:4px">Simple</div>
-          <div style="font-size:11px;color:{s_sub};margin-top:2px">I just want to know<br>if my data is OK</div>
+        <div style="border:{border};background:#161B22;border-radius:8px;
+                    padding:10px 14px;text-align:center;margin-bottom:4px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:1px;
+                      text-transform:uppercase;color:{label_color}">
+            {"● " if simple_active else "○ "}Standard
+          </div>
+          <div style="font-size:11px;color:#484F58;margin-top:3px">For everyone</div>
         </div>""", unsafe_allow_html=True)
-        if st.button("Select Simple", key="btn_simple", use_container_width=True,
+        if st.button("Standard", key="btn_simple", use_container_width=True,
                      type="primary" if simple_active else "secondary"):
             st.session_state["mode"] = "simple"
             st.rerun()
     with tog_r:
         adv_active = st.session_state["mode"] == "advanced"
-        if adv_active:
-            a_style = "border:2px solid #58A6FF;background:#0d1422;"
-            a_color = "#58A6FF"
-        else:
-            a_style = "border:1px solid #30363D;background:#161B22;"
-            a_color = "#C9D1D9"
+        border = "2px solid #58A6FF" if adv_active else "1px solid #30363D"
+        label_color = "#58A6FF" if adv_active else "#6E7681"
         st.markdown(f"""
-        <div style="{a_style}border-radius:10px;padding:12px 16px;text-align:center;margin-bottom:4px">
-          <div style="font-size:18px">⚙️</div>
-          <div style="font-size:13px;font-weight:700;color:{a_color};margin-top:4px">Advanced</div>
-          <div style="font-size:11px;color:#6E7681;margin-top:2px">I'm a data professional<br>& want full details</div>
+        <div style="border:{border};background:#161B22;border-radius:8px;
+                    padding:10px 14px;text-align:center;margin-bottom:4px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:1px;
+                      text-transform:uppercase;color:{label_color}">
+            {"● " if adv_active else "○ "}Expert
+          </div>
+          <div style="font-size:11px;color:#484F58;margin-top:3px">For data teams</div>
         </div>""", unsafe_allow_html=True)
-        if st.button("Select Advanced", key="btn_advanced", use_container_width=True,
+        if st.button("Expert", key="btn_advanced", use_container_width=True,
                      type="primary" if adv_active else "secondary"):
             st.session_state["mode"] = "advanced"
             st.rerun()
 
     simple = st.session_state["mode"] == "simple"
 
-    # ── LIGHT THEME (Simple mode only) ───────────────────────────────────────
-    if simple:
-        st.markdown("""
-        <style>
-        /* ── Page background ── */
-        .stApp, [data-testid="stAppViewContainer"],
-        [data-testid="stMain"], section[data-testid="stMain"],
-        .main, .block-container { background: #F8FAFC !important; }
-
-        /* ── Hero ── */
-        .hero { background: linear-gradient(135deg,#FFFFFF 0%,#EEF2FF 60%,#E0E7FF 100%) !important;
-                border-color: #C7D2FE !important; }
-        .hero::before { background: linear-gradient(90deg,#6366F1,#8B5CF6,#EC4899,#F59E0B,#10B981) !important; }
-        .hero h1 { color: #111827 !important; }
-        .hero h1 span { color: #4F46E5 !important; }
-        .hero-sub { color: #4B5563 !important; }
-        .hero-eyebrow { color: #4F46E5 !important; }
-
-        /* ── Cards / generic containers ── */
-        .card { background: #FFFFFF !important; border-color: #E5E7EB !important; }
-        .card-title { color: #6B7280 !important; }
-
-        /* ── Section typography ── */
-        .section-header { color: #4F46E5 !important; }
-        .section-title  { color: #111827 !important; }
-        .section-sub    { color: #6B7280 !important; }
-
-        /* ── Score reveal ── */
-        .score-label { color: #111827 !important; }
-        .benchmark-badge { background:#F3F4F6 !important; border-color:#E5E7EB !important; color:#4B5563 !important; }
-        .dim-row .dim-name { color: #374151 !important; }
-        .dim-row .dim-val  { color: #111827 !important; }
-        .dim-row .dim-sub  { color: #6B7280 !important; }
-        .dim-track { background: #E5E7EB !important; }
-
-        /* ── Insight cards ── */
-        .insight-card  { background: #FFFFFF !important; border-color: #E5E7EB !important; }
-        .insight-title { color: #111827 !important; }
-        .insight-text  { color: #4B5563 !important; }
-
-        /* ── Findings ── */
-        .finding { background: #FFFFFF !important; }
-        .finding-title    { color: #111827 !important; }
-        .finding-detail   { color: #4B5563 !important; }
-        .finding-headline { color: #111827 !important; }
-        .ex-code { background: #F3F4F6 !important; border-color: #E5E7EB !important; color: #4F46E5 !important; }
-
-        /* ── Rec cards ── */
-        .rec-teaser { background: #FFFFFF !important; border-color: #E5E7EB !important; }
-        .rec-blur   { background: #F3F4F6 !important; border-color: #E5E7EB !important; }
-
-        /* ── Impact box ── */
-        .impact-box { background: linear-gradient(135deg,#FFF7F7,#FFFBF0) !important;
-                      border-color: #FECACA !important; }
-        .impact-total { color: #DC2626 !important; }
-
-        /* ── Lock box ── */
-        .locked-box { background: linear-gradient(135deg,#F8FAFC,#EEF2FF) !important;
-                      border-color: #6366F1 !important; }
-        .locked-box::before { background: linear-gradient(90deg,#6366F1,#8B5CF6) !important; }
-
-        /* ── Flow section ── */
-        .flow-section { background: #F1F5F9 !important; border-color: #E2E8F0 !important; }
-
-        /* ── HR divider ── */
-        hr.dq-divider, .dq-divider { border-color: #E5E7EB !important; }
-
-        /* ── Streamlit native elements ── */
-        [data-testid="stFileUploadDropzone"] {
-            background: #FFFFFF !important; border-color: #C7D2FE !important; }
-        [data-testid="stFileUploadDropzone"] p,
-        [data-testid="stFileUploadDropzone"] span { color: #374151 !important; }
-        [data-testid="stFileUploader"] label { color: #374151 !important; }
-        .stAlert { background: #FFFFFF !important; }
-        </style>
-        """, unsafe_allow_html=True)
-
     # ── HERO ─────────────────────────────────────────────────────────────────
     if simple:
         st.markdown("""
     <div class="hero">
-      <div class="hero-eyebrow">✅ Free · No sign-up · 30 seconds</div>
-      <h1>Is your data giving you<br><span>the right answers?</span></h1>
+      <div class="hero-eyebrow">🔬 Data Quality Dashboard &nbsp;·&nbsp; Free &nbsp;·&nbsp; 30 seconds</div>
+      <h1>How healthy<br><span>is your data?</span></h1>
       <p class="hero-sub">
-        Upload your spreadsheet and we'll check it for hidden errors —
-        missing data, duplicates, broken links between files, and more.
-        You'll get a clear report in plain English with exactly what to fix.
+        Upload your file and get an instant diagnostic —
+        what's broken, how serious it is, and exactly how to fix it.
+        No technical background needed.
       </p>
-      <div style="display:flex;align-items:center;gap:0;margin-top:32px;flex-wrap:wrap">
-        <div style="text-align:center;padding:0 24px 0 0">
-          <div style="font-size:36px;margin-bottom:6px">📤</div>
-          <div style="font-size:13px;font-weight:700;color:#E6EDF3">1. Upload</div>
-          <div style="font-size:12px;color:#6E7681;margin-top:2px">Drop your CSV file</div>
+      <div style="display:flex;align-items:stretch;gap:2px;margin-top:28px;flex-wrap:wrap">
+        <div style="background:#0D1117;border:1px solid #58A6FF;border-radius:8px;
+                    padding:12px 20px;display:flex;align-items:center;gap:10px">
+          <span style="width:24px;height:24px;background:#58A6FF;border-radius:50%;
+                       display:flex;align-items:center;justify-content:center;
+                       font-size:11px;font-weight:800;color:#0D1117;flex-shrink:0">1</span>
+          <div>
+            <div style="font-size:12px;font-weight:700;color:#E6EDF3">Upload file</div>
+            <div style="font-size:11px;color:#6E7681">CSV from Excel or Sheets</div>
+          </div>
         </div>
-        <div style="font-size:24px;color:#30363D;margin:0 8px;padding-bottom:16px">→</div>
-        <div style="text-align:center;padding:0 24px">
-          <div style="font-size:36px;margin-bottom:6px">🔍</div>
-          <div style="font-size:13px;font-weight:700;color:#E6EDF3">2. Check</div>
-          <div style="font-size:12px;color:#6E7681;margin-top:2px">We scan for problems</div>
+        <div style="display:flex;align-items:center;padding:0 6px;color:#30363D;font-size:16px">─</div>
+        <div style="background:#0D1117;border:1px solid #21262D;border-radius:8px;
+                    padding:12px 20px;display:flex;align-items:center;gap:10px">
+          <span style="width:24px;height:24px;background:#21262D;border:1px solid #30363D;border-radius:50%;
+                       display:flex;align-items:center;justify-content:center;
+                       font-size:11px;font-weight:800;color:#6E7681;flex-shrink:0">2</span>
+          <div>
+            <div style="font-size:12px;font-weight:700;color:#6E7681">Run diagnostic</div>
+            <div style="font-size:11px;color:#484F58">Automated scan</div>
+          </div>
         </div>
-        <div style="font-size:24px;color:#30363D;margin:0 8px;padding-bottom:16px">→</div>
-        <div style="text-align:center;padding:0 24px">
-          <div style="font-size:36px;margin-bottom:6px">📋</div>
-          <div style="font-size:13px;font-weight:700;color:#E6EDF3">3. Get results</div>
-          <div style="font-size:12px;color:#6E7681;margin-top:2px">Plain English report</div>
-        </div>
-        <div style="font-size:24px;color:#30363D;margin:0 8px;padding-bottom:16px">→</div>
-        <div style="text-align:center;padding:0 24px">
-          <div style="font-size:36px;margin-bottom:6px">🛠️</div>
-          <div style="font-size:13px;font-weight:700;color:#E6EDF3">4. Fix it</div>
-          <div style="font-size:12px;color:#6E7681;margin-top:2px">Step-by-step guide</div>
+        <div style="display:flex;align-items:center;padding:0 6px;color:#30363D;font-size:16px">─</div>
+        <div style="background:#0D1117;border:1px solid #21262D;border-radius:8px;
+                    padding:12px 20px;display:flex;align-items:center;gap:10px">
+          <span style="width:24px;height:24px;background:#21262D;border:1px solid #30363D;border-radius:50%;
+                       display:flex;align-items:center;justify-content:center;
+                       font-size:11px;font-weight:800;color:#6E7681;flex-shrink:0">3</span>
+          <div>
+            <div style="font-size:12px;font-weight:700;color:#6E7681">View report</div>
+            <div style="font-size:11px;color:#484F58">Score + issues + fixes</div>
+          </div>
         </div>
       </div>
     </div>
@@ -2149,12 +2072,8 @@ def main():
 
     if simple:
         st.markdown("""
-        <div style="font-size:18px;font-weight:700;color:#111827;margin:24px 0 4px">
-          Upload your file
-        </div>
-        <div style="font-size:13px;color:#4B5563;margin-bottom:12px">
-          Supports CSV files exported from Excel, Google Sheets, or any database.
-        </div>
+        <div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;
+                    color:#6E7681;margin:24px 0 10px">Step 1 — Upload your file</div>
         """, unsafe_allow_html=True)
         up_col, info_col = st.columns([3, 1], gap="medium")
         with up_col:
@@ -2165,16 +2084,13 @@ def main():
             ) or []
         with info_col:
             st.markdown("""
-            <div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:12px;padding:20px">
-              <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;
-                          text-transform:uppercase;color:#6B7280;margin-bottom:14px">
-                What you'll get
-              </div>
-              <div style="font-size:13px;color:#374151;line-height:2.4">
-                📊 &nbsp;A score for your data (A–F)<br>
-                🔴 &nbsp;Problems highlighted in your file<br>
-                💬 &nbsp;Plain-English explanation<br>
-                🛠️ &nbsp;How to fix each issue<br>
+            <div class="card">
+              <div class="card-title">Report includes</div>
+              <div style="font-size:12px;color:#8B949E;line-height:2.2">
+                📊 &nbsp;Data quality score (A–F)<br>
+                🔴 &nbsp;Issues flagged in your file<br>
+                💬 &nbsp;Plain-English explanations<br>
+                🛠️ &nbsp;How to fix each problem<br>
                 💰 &nbsp;Business impact estimate
               </div>
             </div>
@@ -2302,8 +2218,8 @@ def main():
     if simple:
         # ── SIMPLE MODE RESULTS ────────────────────────────────────────────────
         render_data_preview(R["dfs"], R["joins"])
-        render_simple_findings(R, light=True)
-        _render_simple_impact(R, light=True)
+        render_simple_findings(R)
+        _render_simple_impact(R)
 
     else:
         # ── ADVANCED MODE RESULTS ──────────────────────────────────────────────
