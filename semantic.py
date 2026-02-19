@@ -111,16 +111,28 @@ def detect_domain(dfs: dict) -> tuple:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def estimate_monetary_impact(dfs: dict, orphan_result: dict,
-                              duplicate_result: dict, gap_result: dict) -> dict:
+                              duplicate_result: dict, gap_result: dict,
+                              monetary_override=None) -> dict:
     """Estimate $ impact of data quality issues."""
     # Find average transaction value across all files
     avg_values = []
-    for df in dfs.values():
-        for col in df.columns:
-            if re.search(COL_SEMANTIC["monetary"], col, re.IGNORECASE):
-                numeric = pd.to_numeric(df[col], errors="coerce").dropna()
+
+    if monetary_override:
+        fname, col = monetary_override
+        if fname in dfs:
+            col_norm = col.strip().lower().replace(" ", "_")
+            if col_norm in dfs[fname].columns:
+                numeric = pd.to_numeric(dfs[fname][col_norm], errors="coerce").dropna()
                 if len(numeric) > 0 and numeric.mean() > 0:
-                    avg_values.append(numeric.mean())
+                    avg_values = [numeric.mean()]
+
+    if not avg_values:
+        for df in dfs.values():
+            for col in df.columns:
+                if re.search(COL_SEMANTIC["monetary"], col, re.IGNORECASE):
+                    numeric = pd.to_numeric(df[col], errors="coerce").dropna()
+                    if len(numeric) > 0 and numeric.mean() > 0:
+                        avg_values.append(numeric.mean())
 
     avg_val = sum(avg_values) / len(avg_values) if avg_values else None
     has_monetary = avg_val is not None

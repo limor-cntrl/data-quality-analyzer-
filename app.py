@@ -1665,7 +1665,146 @@ def generate_html_report(R: dict) -> str:
 </html>"""
 
 
-def run_analysis(uploaded_files) -> tuple:
+def render_assessment_form(preview_dfs: dict) -> dict:
+    """
+    Show a short pre-analysis assessment form.
+    Returns assessment_config dict:
+    {
+        "domain":       str or None,          # None = use auto-detect
+        "primary_keys": {fname: col},         # per-file PK column (normalized)
+        "monetary":     (fname, col) or None, # for business impact
+        "user_joins":   [{key, file_a, file_b, col_a?, col_b?}],
+    }
+    """
+    # Auto-populate defaults using existing detection
+    auto_domain, _ = detect_domain(preview_dfs)
+    auto_joins = detect_join_keys(preview_dfs)
+
+    # Find monetary columns via classify_columns
+    monetary_defaults = {}
+    pk_defaults = {}
+    for fname, df in preview_dfs.items():
+        sem = classify_columns(df)
+        monetary_defaults[fname] = [c for c, t in sem.items() if t == "monetary"]
+        # Default PK: first col matching id pattern
+        pk_defaults[fname] = next(
+            (c for c in df.columns if re.search(r"(^id$|_id$|_key$)", c, re.IGNORECASE)),
+            None
+        )
+
+    all_domains = ["E-commerce", "CRM", "Finance", "HR", "Marketing", "Operations", "General Business"]
+    ordered_domains = [auto_domain] + [d for d in all_domains if d != auto_domain]
+
+    cfg = {
+        "domain": None,
+        "primary_keys": {},
+        "monetary": None,
+        "user_joins": [],
+    }
+
+    with st.expander("📋 Pre-Analysis Assessment", expanded=True):
+        st.markdown(
+            "<div style='font-size:13px;color:#8B949E;margin-bottom:16px'>"
+            "Confirm a few details so the analysis targets your specific data. "
+            "Defaults are auto-detected — most users just click <strong>Confirm</strong>."
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+        # ── Section 1: Business Domain ────────────────────────────────────────
+        st.markdown("**Business Domain**")
+        domain_sel = st.selectbox(
+            "What type of business data is this?",
+            options=ordered_domains,
+            index=0,
+            help="Auto-detected from file names and column names.",
+        )
+        st.caption(f"Auto-detected: **{auto_domain}**")
+        cfg["domain"] = domain_sel if domain_sel != auto_domain else None
+
+        st.markdown("---")
+
+        # ── Section 2: Primary Key per file ──────────────────────────────────
+        st.markdown("**Primary Key per File**")
+        st.caption("The column that uniquely identifies each row.")
+        for fname, df in preview_dfs.items():
+            col_options = ["Auto-detect"] + list(df.columns)
+            default_pk = pk_defaults.get(fname)
+            default_idx = col_options.index(default_pk) if default_pk and default_pk in col_options else 0
+            chosen = st.selectbox(
+                f"Primary key — `{fname}`",
+                options=col_options,
+                index=default_idx,
+                key=f"pk_{fname}",
+            )
+            cfg["primary_keys"][fname] = None if chosen == "Auto-detect" else chosen
+
+        st.markdown("---")
+
+        # ── Section 3: Monetary / Value Column ────────────────────────────────
+        st.markdown("**Monetary / Value Column**")
+        st.caption("Used to calculate dollar-value business impact.")
+        skip_monetary = st.checkbox("Skip — no monetary column in this data", value=False, key="skip_monetary")
+
+        if not skip_monetary:
+            file_names = list(preview_dfs.keys())
+            # Default: file with most monetary-tagged columns
+            best_file = max(file_names, key=lambda f: len(monetary_defaults.get(f, [])), default=file_names[0])
+            file_idx = file_names.index(best_file)
+            mon_file = st.selectbox("File containing monetary values", options=file_names, index=file_idx, key="monetary_file")
+
+            mon_col_options = ["None"] + list(preview_dfs[mon_file].columns)
+            mon_defaults_for_file = monetary_defaults.get(mon_file, [])
+            default_col = mon_defaults_for_file[0] if mon_defaults_for_file else None
+            default_col_idx = mon_col_options.index(default_col) if default_col and default_col in mon_col_options else 0
+            mon_col = st.selectbox("Monetary / value column", options=mon_col_options, index=default_col_idx, key="monetary_col")
+
+            if mon_col and mon_col != "None":
+                cfg["monetary"] = (mon_file, mon_col)
+
+        st.markdown("---")
+
+        # ── Section 4: File Relationships (multi-file only) ───────────────────
+        if len(preview_dfs) > 1:
+            st.markdown("**File Relationships**")
+            st.caption("Auto-detected joins shown below. Add custom relationships if needed.")
+
+            # Show auto-detected joins as chips
+            if auto_joins:
+                chips = "  ".join(
+                    f"`{j['file_a']}.{j.get('col_a', j['key'])} ↔ {j['file_b']}.{j.get('col_b', j['key'])}`"
+                    for j in auto_joins
+                )
+                st.markdown(f"Auto-detected: {chips}")
+            else:
+                st.caption("No joins auto-detected.")
+
+            # User-defined extra joins
+            if "user_joins_list" not in st.session_state:
+                st.session_state.user_joins_list = []
+
+            if st.button("+ Add relationship", key="add_join_btn"):
+                st.session_state.user_joins_list.append({"file_a": "", "col_a": "", "file_b": "", "col_b": ""})
+
+            fname_list = list(preview_dfs.keys())
+            for idx, uj in enumerate(st.session_state.user_joins_list):
+                cols = st.columns([2, 2, 2, 2, 1])
+                fa = cols[0].selectbox("File A", fname_list, key=f"uj_fa_{idx}")
+                ca_opts = list(preview_dfs[fa].columns) if fa else []
+                ca = cols[1].selectbox("Col A", ca_opts, key=f"uj_ca_{idx}")
+                fb = cols[2].selectbox("File B", fname_list, key=f"uj_fb_{idx}")
+                cb_opts = list(preview_dfs[fb].columns) if fb else []
+                cb = cols[3].selectbox("Col B", cb_opts, key=f"uj_cb_{idx}")
+                if cols[4].button("✕", key=f"uj_rm_{idx}"):
+                    st.session_state.user_joins_list.pop(idx)
+                    st.rerun()
+                if fa and ca and fb and cb:
+                    cfg["user_joins"].append({"key": ca, "file_a": fa, "col_a": ca, "file_b": fb, "col_b": cb})
+
+    return cfg
+
+
+def run_analysis(uploaded_files, cfg=None) -> tuple:
     dfs, errors = {}, []
     for f in uploaded_files:
         name = re.sub(r"\.csv$", "", f.name, flags=re.IGNORECASE)
@@ -1679,7 +1818,15 @@ def run_analysis(uploaded_files) -> tuple:
     if not dfs:
         return None, errors
 
-    joins      = detect_join_keys(dfs)
+    joins = detect_join_keys(dfs)
+
+    # Merge user-specified relationships from assessment form
+    if cfg and cfg.get("user_joins"):
+        existing = {(j["file_a"], j["file_b"]) for j in joins}
+        for uj in cfg["user_joins"]:
+            if (uj["file_a"], uj["file_b"]) not in existing:
+                joins.append(uj)
+
     orphans    = check_orphan_records(dfs, joins)
     dupes      = check_entity_duplicates(dfs, joins)
     gaps       = check_process_gaps(dfs, joins)
@@ -1688,8 +1835,16 @@ def run_analysis(uploaded_files) -> tuple:
 
     # Semantic layer
     entities = {name: detect_entity(name, df) for name, df in dfs.items()}
-    domain, conf  = detect_domain(dfs)
-    impact    = estimate_monetary_impact(dfs, orphans, dupes, gaps)
+    domain, conf = detect_domain(dfs)
+
+    # Override domain if user specified
+    if cfg and cfg.get("domain"):
+        domain, conf = cfg["domain"], 1.0
+
+    # Pass monetary override to impact calculation
+    monetary_override = cfg.get("monetary") if cfg else None
+    impact    = estimate_monetary_impact(dfs, orphans, dupes, gaps,
+                                         monetary_override=monetary_override)
     narrative = generate_narrative(dfs, domain, entities, orphans, dupes, gaps,
                                    score_data["scores"]["overall"])
 
@@ -1788,6 +1943,19 @@ def main():
         st.warning("Please upload up to 5 files at a time.")
         return
 
+    # ── PARSE HEADERS ONLY (for assessment form) ─────────────────────────────
+    preview_dfs = {}
+    for f in uploaded_files:
+        try:
+            fname = re.sub(r"\.csv$", "", f.name, flags=re.IGNORECASE)
+            preview_dfs[fname] = pd.read_csv(f, nrows=0)
+            f.seek(0)
+        except Exception:
+            pass
+
+    # ── ASSESSMENT FORM (shown before Run button) ─────────────────────────────
+    assessment_cfg = render_assessment_form(preview_dfs)
+
     # ── ANALYZE BUTTON ────────────────────────────────────────────────────────
     btn_col, _ = st.columns([2, 5])
     with btn_col:
@@ -1812,7 +1980,7 @@ def main():
             time.sleep(0.6)
             done.append((emoji, label))
 
-        results, errors = run_analysis(uploaded_files)
+        results, errors = run_analysis(uploaded_files, cfg=assessment_cfg)
         _render_progress(prog, 100, "✅ Diagnostic complete", done)
         time.sleep(0.4)
         prog.empty()
@@ -1821,6 +1989,7 @@ def main():
             st.error(e)
         if results:
             st.session_state.results = results
+            st.session_state["assessment"] = assessment_cfg
         elif not errors:
             st.error("Analysis failed — please check your files.")
 
