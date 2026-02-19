@@ -1858,13 +1858,116 @@ def run_analysis(uploaded_files, cfg=None) -> tuple:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Simple-mode helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def render_simple_findings(R: dict):
+    """Translate top findings into 3 plain-English cards for non-technical users."""
+    findings = []
+    for f in R["orphans"].get("findings", [])[:1]:
+        left = f["direction"].split("→")[0].strip()
+        findings.append(
+            f"<strong>{f['orphan_count']:,} rows</strong> in <em>{left}</em> "
+            f"don't match anything in the other file — they'll be invisible in any report."
+        )
+    for f in R["dupes"].get("findings", [])[:1]:
+        findings.append(
+            f"<em>{f['file']}</em> contains <strong>{f['duplicate_count']:,} duplicate entries</strong> "
+            f"for the same {f['type']}. Every count or total built on this is wrong."
+        )
+    for f in R["gaps"].get("findings", [])[:1]:
+        findings.append(
+            f"<strong>{f['pct_of_upstream']}%</strong> of records start at "
+            f"<em>{f['stage_from']}</em> but never reach <em>{f['stage_to']}</em>."
+        )
+    if not findings:
+        st.success("No major issues found — your data looks solid.")
+        return
+    st.markdown(
+        "<div style='font-size:18px;font-weight:800;color:#E6EDF3;margin:24px 0 12px'>"
+        "What's wrong with your data</div>",
+        unsafe_allow_html=True,
+    )
+    for txt in findings:
+        st.markdown(
+            f"<div style='background:#161B22;border:1px solid #30363D;"
+            f"border-left:4px solid #F0883E;border-radius:8px;padding:16px 20px;"
+            f"margin-bottom:10px;font-size:14px;color:#C9D1D9'>⚠️ &nbsp;{txt}</div>",
+            unsafe_allow_html=True,
+        )
+
+
+def _render_simple_impact(R: dict):
+    """Business impact teaser for Simple mode — total only, no itemized breakdown."""
+    impact = R["impact"]
+    if not impact.get("items"):
+        return
+    st.markdown('<hr class="dq-divider">', unsafe_allow_html=True)
+    if impact.get("has_monetary") and impact.get("total"):
+        total = impact["total"]
+        st.markdown(f"""
+        <div class="impact-box">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;
+                      letter-spacing:1px;color:#6E7681;margin-bottom:6px">
+            Estimated financial impact
+          </div>
+          <div class="impact-total">~${total:,.0f}</div>
+          <div style="font-size:13px;color:#8B949E;margin-top:8px">
+            estimated revenue / pipeline at risk from data quality issues
+          </div>
+        </div>""", unsafe_allow_html=True)
+    else:
+        count = sum(i["count"] for i in impact["items"])
+        st.markdown(f"""
+        <div class="impact-box">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;
+                      letter-spacing:1px;color:#6E7681;margin-bottom:6px">
+            Records affected
+          </div>
+          <div class="impact-total">{count:,}</div>
+          <div style="font-size:13px;color:#8B949E;margin-top:8px">
+            records involved in data quality issues
+          </div>
+        </div>""", unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Main app
 # ─────────────────────────────────────────────────────────────────────────────
 
 def main():
 
+    # ── MODE TOGGLE ───────────────────────────────────────────────────────────
+    if "mode" not in st.session_state:
+        st.session_state["mode"] = "simple"
+
+    mode_col, _ = st.columns([3, 5])
+    with mode_col:
+        chosen = st.radio(
+            "View mode",
+            options=["🟢  Simple", "⚙️  Advanced"],
+            index=0 if st.session_state["mode"] == "simple" else 1,
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+        st.session_state["mode"] = "simple" if "Simple" in chosen else "advanced"
+
+    simple = st.session_state["mode"] == "simple"
+
     # ── HERO ─────────────────────────────────────────────────────────────────
-    st.markdown("""
+    if simple:
+        st.markdown("""
+    <div class="hero">
+      <div class="hero-eyebrow">✅ Data Quality Check</div>
+      <h1>Find out what's wrong<br><span>with your data.</span></h1>
+      <p class="hero-sub">
+        Upload a CSV file and get a plain-English report in 30 seconds.
+        No technical knowledge needed — we'll highlight the problems and tell you how to fix them.
+      </p>
+    </div>
+    """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
     <div class="hero">
       <div class="hero-eyebrow">🔬 Data Quality Intelligence Platform</div>
       <h1>Your data looks clean.<br><span>It isn't.</span></h1>
@@ -1953,13 +2056,17 @@ def main():
         except Exception:
             pass
 
-    # ── ASSESSMENT FORM (shown before Run button) ─────────────────────────────
-    assessment_cfg = render_assessment_form(preview_dfs)
+    # ── ASSESSMENT FORM (Advanced mode only) ─────────────────────────────────
+    if not simple:
+        assessment_cfg = render_assessment_form(preview_dfs)
+    else:
+        assessment_cfg = {"domain": None, "primary_keys": {}, "monetary": None, "user_joins": []}
 
     # ── ANALYZE BUTTON ────────────────────────────────────────────────────────
     btn_col, _ = st.columns([2, 5])
     with btn_col:
-        do_analyze = st.button("🔬  Run Diagnostic", type="primary", use_container_width=True)
+        btn_label = "🔍  Check My Data" if simple else "🔬  Run Diagnostic"
+        do_analyze = st.button(btn_label, type="primary", use_container_width=True)
 
     if do_analyze:
         for k in ["results","email_submitted","show_form","user_info"]:
@@ -1999,181 +2106,183 @@ def main():
     R    = st.session_state.results
     recs = R["recs"]
 
-    # ── SCORE REVEAL — first thing the user sees ──────────────────────────────
+    # ── SCORE REVEAL — always shown ───────────────────────────────────────────
     render_score_reveal(R)
 
-    # ── EXECUTIVE SUMMARY ────────────────────────────────────────────────────
-    render_executive_summary(R)
+    if simple:
+        # ── SIMPLE MODE RESULTS ────────────────────────────────────────────────
+        render_data_preview(R["dfs"], R["joins"])
+        render_simple_findings(R)
+        _render_simple_impact(R)
 
-    # ── MISSING FILE SUGGESTIONS ─────────────────────────────────────────────
-    render_missing_file_suggestions(R["dfs"], R["domain"])
+    else:
+        # ── ADVANCED MODE RESULTS ──────────────────────────────────────────────
+        render_executive_summary(R)
+        render_missing_file_suggestions(R["dfs"], R["domain"])
 
-    # ── EXPORT BUTTON ────────────────────────────────────────────────────────
-    html_report = generate_html_report(R)
-    _, dl_col, _ = st.columns([3, 2, 3])
-    with dl_col:
-        st.download_button(
-            label="⬇ Download Full Report (HTML)",
-            data=html_report,
-            file_name=f"data_quality_report_{datetime.now().strftime('%Y%m%d_%H%M')}.html",
-            mime="text/html",
-            use_container_width=True,
-        )
-
-    # ── DATA PREVIEW ─────────────────────────────────────────────────────────
-    render_data_preview(R["dfs"], R["joins"])
-
-    # ── DISTRIBUTIONS ────────────────────────────────────────────────────────
-    render_distributions(R["dfs"])
-
-    # ── QUALITY HEATMAP ───────────────────────────────────────────────────────
-    if len(R["dfs"]) > 1:
-        st.markdown('<hr class="dq-divider">', unsafe_allow_html=True)
-        st.markdown("""
-        <div class="section-header">Per-File Breakdown</div>
-        <div class="section-title">Quality Score Heatmap</div>
-        <div class="section-sub">
-          Score by file and dimension. Darker cells = lower score = higher risk.
-          Each cell is independently calculated for that specific file.
-        </div>
-        """, unsafe_allow_html=True)
-        render_quality_heatmap(R["dfs"], R["score_data"])
-
-    # ── SECTION 2: DATA MAP ────────────────────────────────────────────────────
-    if len(R["dfs"]) > 1:
-        st.markdown('<hr class="dq-divider">', unsafe_allow_html=True)
-        st.markdown("""
-        <div class="section-header">Relationship Analysis</div>
-        <div class="section-title">Your Data Pipeline Map</div>
-        <div class="section-sub">
-          Green lines = healthy joins · Red/orange lines = broken connections with orphan counts
-        </div>
-        """, unsafe_allow_html=True)
-        st.markdown('<div class="flow-section">', unsafe_allow_html=True)
-        flow_fig = make_flow_map(R["dfs"], R["joins"], R["orphans"], R["gaps"])
-        st.plotly_chart(flow_fig, use_container_width=True, config={"displayModeBar": False})
-        _dl_png_btn(flow_fig, "data_pipeline_map.png", "⬇ Download Pipeline Map")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    # ── SECTION 3: WHAT YOUR DATA IS TELLING YOU ──────────────────────────────
-    if R["narrative"]:
-        st.markdown('<hr class="dq-divider">', unsafe_allow_html=True)
-        st.markdown("""
-        <div class="section-header">Semantic Analysis</div>
-        <div class="section-title">What Your Data Is Telling Us</div>
-        <div class="section-sub">
-          Beyond format checks — a contextual interpretation of what we found.
-        </div>
-        """, unsafe_allow_html=True)
-        for n in R["narrative"]:
-            render_insight(n["icon"], n["title"], n["text"])
-
-    # ── SECTION 4: BUSINESS IMPACT ────────────────────────────────────────────
-    impact = R["impact"]
-    if impact.get("items"):
-        st.markdown('<hr class="dq-divider">', unsafe_allow_html=True)
-        st.markdown("""
-        <div class="section-header">Business Impact</div>
-        <div class="section-title">Estimated Cost of Data Issues</div>
-        """, unsafe_allow_html=True)
-
-        if impact.get("has_monetary") and impact.get("total"):
-            total = impact["total"]
-            rows_html = ""
-            for item in impact["items"]:
-                if item.get("value"):
-                    rows_html += f"""
-                    <div class="impact-row">
-                      <span style="color:#8B949E">{item['label']}</span>
-                      <span style="color:#F85149;font-weight:700;font-family:'JetBrains Mono',monospace">
-                        ~${item['value']:,.0f}
-                      </span>
-                    </div>"""
-            st.markdown(f"""
-            <div class="impact-box">
-              <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6E7681;margin-bottom:6px">
-                Identified risk
-              </div>
-              <div class="impact-total">~${total:,.0f}</div>
-              <div style="font-size:12px;color:#6E7681;margin-bottom:20px">
-                estimated revenue / pipeline at risk · based on avg transaction value ${impact['avg_value']:,.0f}
-              </div>
-              {rows_html}
-            </div>""", unsafe_allow_html=True)
-        else:
-            items_html = "".join(
-                f'<div class="impact-row"><span style="color:#8B949E">{i["label"]}</span>'
-                f'<span style="color:#F85149;font-weight:700">{i["count"]:,} records</span></div>'
-                for i in impact["items"]
+        # Export button
+        html_report = generate_html_report(R)
+        _, dl_col, _ = st.columns([3, 2, 3])
+        with dl_col:
+            st.download_button(
+                label="⬇ Download Full Report (HTML)",
+                data=html_report,
+                file_name=f"data_quality_report_{datetime.now().strftime('%Y%m%d_%H%M')}.html",
+                mime="text/html",
+                use_container_width=True,
             )
-            st.markdown(f"""
-            <div class="impact-box">
-              <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6E7681;margin-bottom:16px">
-                Records at risk (no monetary column detected for $ estimate)
-              </div>
-              {items_html}
-            </div>""", unsafe_allow_html=True)
 
-    # ── SECTION 5: CRITICAL FINDINGS ──────────────────────────────────────────
+        render_data_preview(R["dfs"], R["joins"])
+        render_distributions(R["dfs"])
+
+        if len(R["dfs"]) > 1:
+            st.markdown('<hr class="dq-divider">', unsafe_allow_html=True)
+            st.markdown("""
+            <div class="section-header">Per-File Breakdown</div>
+            <div class="section-title">Quality Score Heatmap</div>
+            <div class="section-sub">
+              Score by file and dimension. Darker cells = lower score = higher risk.
+              Each cell is independently calculated for that specific file.
+            </div>
+            """, unsafe_allow_html=True)
+            render_quality_heatmap(R["dfs"], R["score_data"])
+
+        if len(R["dfs"]) > 1:
+            st.markdown('<hr class="dq-divider">', unsafe_allow_html=True)
+            st.markdown("""
+            <div class="section-header">Relationship Analysis</div>
+            <div class="section-title">Your Data Pipeline Map</div>
+            <div class="section-sub">
+              Green lines = healthy joins · Red/orange lines = broken connections with orphan counts
+            </div>
+            """, unsafe_allow_html=True)
+            st.markdown('<div class="flow-section">', unsafe_allow_html=True)
+            flow_fig = make_flow_map(R["dfs"], R["joins"], R["orphans"], R["gaps"])
+            st.plotly_chart(flow_fig, use_container_width=True, config={"displayModeBar": False})
+            _dl_png_btn(flow_fig, "data_pipeline_map.png", "⬇ Download Pipeline Map")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        if R["narrative"]:
+            st.markdown('<hr class="dq-divider">', unsafe_allow_html=True)
+            st.markdown("""
+            <div class="section-header">Semantic Analysis</div>
+            <div class="section-title">What Your Data Is Telling Us</div>
+            <div class="section-sub">
+              Beyond format checks — a contextual interpretation of what we found.
+            </div>
+            """, unsafe_allow_html=True)
+            for n in R["narrative"]:
+                render_insight(n["icon"], n["title"], n["text"])
+
+        impact = R["impact"]
+        if impact.get("items"):
+            st.markdown('<hr class="dq-divider">', unsafe_allow_html=True)
+            st.markdown("""
+            <div class="section-header">Business Impact</div>
+            <div class="section-title">Estimated Cost of Data Issues</div>
+            """, unsafe_allow_html=True)
+            if impact.get("has_monetary") and impact.get("total"):
+                total = impact["total"]
+                rows_html = ""
+                for item in impact["items"]:
+                    if item.get("value"):
+                        rows_html += f"""
+                        <div class="impact-row">
+                          <span style="color:#8B949E">{item['label']}</span>
+                          <span style="color:#F85149;font-weight:700;font-family:'JetBrains Mono',monospace">
+                            ~${item['value']:,.0f}
+                          </span>
+                        </div>"""
+                st.markdown(f"""
+                <div class="impact-box">
+                  <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6E7681;margin-bottom:6px">
+                    Identified risk
+                  </div>
+                  <div class="impact-total">~${total:,.0f}</div>
+                  <div style="font-size:12px;color:#6E7681;margin-bottom:20px">
+                    estimated revenue / pipeline at risk · based on avg transaction value ${impact['avg_value']:,.0f}
+                  </div>
+                  {rows_html}
+                </div>""", unsafe_allow_html=True)
+            else:
+                items_html = "".join(
+                    f'<div class="impact-row"><span style="color:#8B949E">{i["label"]}</span>'
+                    f'<span style="color:#F85149;font-weight:700">{i["count"]:,} records</span></div>'
+                    for i in impact["items"]
+                )
+                st.markdown(f"""
+                <div class="impact-box">
+                  <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6E7681;margin-bottom:16px">
+                    Records at risk (no monetary column detected for $ estimate)
+                  </div>
+                  {items_html}
+                </div>""", unsafe_allow_html=True)
+
+        st.markdown('<hr class="dq-divider">', unsafe_allow_html=True)
+        st.markdown("""
+        <div class="section-header">Critical Findings</div>
+        <div class="section-title">What's Broken — and Why It Matters</div>
+        <div class="section-sub">
+          Issues found by analyzing <em>relationships between files</em>.
+          Data that looks clean in isolation often breaks at the joins.
+        </div>
+        """, unsafe_allow_html=True)
+
+        shown = 0
+        for f in R["orphans"].get("findings", [])[:2]:
+            pct = f["pct_of_source"]
+            sev = "critical" if pct > 25 else ("high" if pct > 8 else "medium")
+            render_finding(
+                title=f"Orphan records — {f['direction']}",
+                metric=f"{f['orphan_count']:,} records ({pct}%) invisible in reports",
+                severity=sev,
+                detail=f"Key: <code style='color:#79C0FF;font-family:JetBrains Mono'>{f['key']}</code> · "
+                       "These records vanish from every JOIN, aggregation, and report built on this relationship.",
+                examples=f["example_values"],
+            )
+            shown += 1
+
+        for f in R["dupes"].get("findings", [])[:1]:
+            sev = "critical" if f["duplicate_count"] > 10 else "high"
+            names_ex = [e.get("name") or e.get("value_a","") for e in f["examples"][:3]]
+            render_finding(
+                title=f"Entity duplicates — '{f['file']}' ({f['type']})",
+                metric=f"{f['duplicate_count']} duplicate entities",
+                severity=sev,
+                detail="Same real-world entity under multiple IDs. "
+                       "Every count, segment, and KPI built on this table is wrong.",
+                examples=names_ex,
+            )
+            shown += 1
+
+        for f in R["gaps"].get("findings", [])[:1]:
+            pct = f["pct_of_upstream"]
+            sev = "critical" if pct > 20 else ("high" if pct > 5 else "medium")
+            render_finding(
+                title=f"Process gap — {f['stage_from']} → {f['stage_to']}",
+                metric=f"{f['missing_count']:,} records ({pct}%) stalled in the pipeline",
+                severity=sev,
+                detail="Records started the process but never completed the next stage. "
+                       "SLA violations, broken audit trail, and invisible workflow failures.",
+                examples=f["example_ids"],
+            )
+            shown += 1
+
+        if shown == 0:
+            st.success("✅ No critical integration issues detected across the uploaded files.")
+
+    # ── RECOMMENDATIONS (both modes) ──────────────────────────────────────────
     st.markdown('<hr class="dq-divider">', unsafe_allow_html=True)
-    st.markdown("""
-    <div class="section-header">Critical Findings</div>
-    <div class="section-title">What's Broken — and Why It Matters</div>
-    <div class="section-sub">
-      Issues found by analyzing <em>relationships between files</em>.
-      Data that looks clean in isolation often breaks at the joins.
-    </div>
-    """, unsafe_allow_html=True)
-
-    shown = 0
-    for f in R["orphans"].get("findings", [])[:2]:
-        pct = f["pct_of_source"]
-        sev = "critical" if pct > 25 else ("high" if pct > 8 else "medium")
-        render_finding(
-            title=f"Orphan records — {f['direction']}",
-            metric=f"{f['orphan_count']:,} records ({pct}%) invisible in reports",
-            severity=sev,
-            detail=f"Key: <code style='color:#79C0FF;font-family:JetBrains Mono'>{f['key']}</code> · "
-                   "These records vanish from every JOIN, aggregation, and report built on this relationship.",
-            examples=f["example_values"],
-        )
-        shown += 1
-
-    for f in R["dupes"].get("findings", [])[:1]:
-        sev = "critical" if f["duplicate_count"] > 10 else "high"
-        names_ex = [e.get("name") or e.get("value_a","") for e in f["examples"][:3]]
-        render_finding(
-            title=f"Entity duplicates — '{f['file']}' ({f['type']})",
-            metric=f"{f['duplicate_count']} duplicate entities",
-            severity=sev,
-            detail="Same real-world entity under multiple IDs. "
-                   "Every count, segment, and KPI built on this table is wrong.",
-            examples=names_ex,
-        )
-        shown += 1
-
-    for f in R["gaps"].get("findings", [])[:1]:
-        pct = f["pct_of_upstream"]
-        sev = "critical" if pct > 20 else ("high" if pct > 5 else "medium")
-        render_finding(
-            title=f"Process gap — {f['stage_from']} → {f['stage_to']}",
-            metric=f"{f['missing_count']:,} records ({pct}%) stalled in the pipeline",
-            severity=sev,
-            detail="Records started the process but never completed the next stage. "
-                   "SLA violations, broken audit trail, and invisible workflow failures.",
-            examples=f["example_ids"],
-        )
-        shown += 1
-
-    if shown == 0:
-        st.success("✅ No critical integration issues detected across the uploaded files.")
-
-    # ── SECTION 6: RECOMMENDATIONS ────────────────────────────────────────────
-    st.markdown('<hr class="dq-divider">', unsafe_allow_html=True)
-    st.markdown("""
-    <div class="section-header">Remediation Plan</div>
-    <div class="section-title">How to Fix It</div>
-    """, unsafe_allow_html=True)
+    if simple:
+        st.markdown("""
+        <div class="section-header">Next Steps</div>
+        <div class="section-title">How to Fix It</div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div class="section-header">Remediation Plan</div>
+        <div class="section-title">How to Fix It</div>
+        """, unsafe_allow_html=True)
 
     if not recs:
         st.success("No specific recommendations — data quality is solid.")
@@ -2183,18 +2292,23 @@ def main():
     if st.session_state.get("email_submitted"):
         uname = st.session_state.get("user_info", {}).get("name", "")
         st.success(f"✅ Full recommendations unlocked — {uname}, here's your remediation plan.")
-        st.markdown(
-            '<p style="font-size:13px;color:#6E7681;margin-bottom:18px">'
-            'Prioritized by severity. Includes root cause, SQL fix queries, and prevention strategies.</p>',
-            unsafe_allow_html=True)
+        if not simple:
+            st.markdown(
+                '<p style="font-size:13px;color:#6E7681;margin-bottom:18px">'
+                'Prioritized by severity. Includes root cause, SQL fix queries, and prevention strategies.</p>',
+                unsafe_allow_html=True)
         for rec in recs:
             render_rec_full(rec)
         return
 
     # TEASER
+    teaser_intro = (
+        'Here\'s a preview of what we found. Enter your details below to get the full step-by-step fix guide.'
+        if simple else
+        'A preview of your top issues. Enter your details below to unlock the full step-by-step guide.'
+    )
     st.markdown(
-        '<p style="font-size:14px;color:#8B949E;margin-bottom:18px">'
-        'A preview of your top issues. Enter your details below to unlock the full step-by-step guide.</p>',
+        f'<p style="font-size:14px;color:#8B949E;margin-bottom:18px">{teaser_intro}</p>',
         unsafe_allow_html=True)
 
     for rec in recs[:3]:
