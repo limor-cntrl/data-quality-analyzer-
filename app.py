@@ -810,8 +810,8 @@ def _analyze_preview_issues(preview: pd.DataFrame, name: str,
         # Date issues
         if re.search(r"(date|time|created|updated|timestamp)", col, re.IGNORECASE):
             try:
-                parsed = pd.to_datetime(s, errors="coerce")
-                now = pd.Timestamp.now()
+                parsed = pd.to_datetime(s, errors="coerce", utc=True)
+                now = pd.Timestamp.now(tz="UTC")
                 # Future dates
                 for idx in parsed[parsed > now].index:
                     days_ahead = (parsed[idx] - now).days
