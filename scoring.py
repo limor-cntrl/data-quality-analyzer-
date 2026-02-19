@@ -149,8 +149,9 @@ def calculate_scores(dfs: dict, orphan_result: dict, duplicate_result: dict,
     if date_series:
         all_dates = pd.concat(date_series)
         latest    = all_dates.max()
-        days_old  = (pd.Timestamp.now() - latest).days
-        future    = int((all_dates > pd.Timestamp.now()).sum())
+        now_utc   = pd.Timestamp.now(tz="UTC")
+        days_old  = (now_utc - latest).days
+        future    = int((all_dates > now_utc).sum())
 
         if   days_old <  7:  t = 95
         elif days_old < 30:  t = 82
