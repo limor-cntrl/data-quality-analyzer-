@@ -695,69 +695,252 @@ def save_lead(name, company, email, role):
 # Data preview helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def find_orphan_rows(df: pd.DataFrame, name: str, dfs: dict, joins: list) -> tuple:
-    """Return (set of orphan row indices, set of orphan column names) for this file."""
-    orphan_indices, orphan_cols = set(), set()
+def _analyze_preview_issues(preview: pd.DataFrame, name: str,
+                             dfs: dict, joins: list) -> tuple:
+    """
+    Comprehensive per-cell issue detection.
+    Returns (color_map, tooltip_map, counts).
+    Priority: 1=null > 2=orphan-key > 3=invalid > 4=outlier > 5=dup > 6=orphan-row
+    """
+    cell_data = {}   # (idx, col) -> [(priority, bg, fg, tip)]
+
+    def add(idx, col, priority, bg, fg, tip):
+        key = (idx, col)
+        cell_data.setdefault(key, []).append((priority, bg, fg, tip))
+
+    # ── 1. Null / whitespace ─────────────────────────────────────────────────
+    null_count = 0
+    for idx in preview.index:
+        for col in preview.columns:
+            val = preview.loc[idx, col]
+            if pd.isna(val):
+                null_count += 1
+                add(idx, col, 1, "#3d0f0f", "#F85149",
+                    "🔴 Missing value (null) — excluded from all aggregations, "
+                    "averages, counts, and reports. Trace back to the source system "
+                    "or ETL pipeline to find where this value is lost.")
+            elif isinstance(val, str) and len(val) > 0 and val.strip() == "":
+                null_count += 1
+                add(idx, col, 1, "#3d0f0f", "#F85149",
+                    "🔴 Whitespace-only string — appears non-empty but contains only "
+                    "spaces or tabs. Will fail equality checks and cause join mismatches.")
+
+    # ── 2. Orphan records ─────────────────────────────────────────────────────
+    orphan_rows = set()
     for j in joins:
         if j["file_a"] == name:
-            col_self, other_name, col_other = j.get("col_a", j["key"]), j["file_b"], j.get("col_b", j["key"])
+            col_self = j.get("col_a", j["key"])
+            other_name, col_other = j["file_b"], j.get("col_b", j["key"])
         elif j["file_b"] == name:
-            col_self, other_name, col_other = j.get("col_b", j["key"]), j["file_a"], j.get("col_a", j["key"])
+            col_self = j.get("col_b", j["key"])
+            other_name, col_other = j["file_a"], j.get("col_a", j["key"])
         else:
             continue
-        if col_self not in df.columns or other_name not in dfs or col_other not in dfs[other_name].columns:
+        if col_self not in preview.columns or other_name not in dfs:
             continue
         other_vals = set(dfs[other_name][col_other].dropna().astype(str))
-        mask = ~df[col_self].astype(str).isin(other_vals)
-        orphan_indices.update(df.index[mask])
-        orphan_cols.add(col_self)
-    return orphan_indices, orphan_cols
+        for idx in preview.index:
+            val = preview.loc[idx, col_self]
+            if pd.isna(val):
+                continue
+            if str(val) not in other_vals:
+                orphan_rows.add(idx)
+                # Key column — high contrast
+                add(idx, col_self, 2, "#2d1500", "#F0883E",
+                    f"🟠 Orphan key — '{val}' has no matching {col_other} "
+                    f"in '{other_name}'. This row is invisible in every JOIN, "
+                    f"aggregation, and report built on this relationship.")
+                # Rest of the row — lighter tint
+                for other_col in preview.columns:
+                    if other_col != col_self:
+                        add(idx, other_col, 6, "#1a0d00", "#c97a50",
+                            f"🟠 Orphan row — key '{col_self}' = '{val}' "
+                            f"has no match in '{other_name}'. "
+                            f"This entire row is excluded from joined analyses.")
 
+    # ── 3. Duplicate rows ─────────────────────────────────────────────────────
+    dup_mask = preview.duplicated(keep=False)
+    dup_rows_set = set(preview.index[dup_mask])
+    dup_groups: dict = {}
+    for idx in dup_rows_set:
+        key = tuple(preview.loc[idx].fillna("__∅__"))
+        dup_groups.setdefault(key, []).append(idx)
+    for group_idxs in dup_groups.values():
+        for idx in group_idxs:
+            others = [r + 1 for r in group_idxs if r != idx]
+            others_str = ", ".join(str(r) for r in others[:4])
+            for col in preview.columns:
+                add(idx, col, 5, "#0d1a2d", "#58A6FF",
+                    f"🔵 Duplicate row — identical record also at row {others_str}. "
+                    f"Entity counts, totals, and KPIs are inflated. "
+                    f"Add a UNIQUE constraint and deduplicate at ingestion.")
 
-def find_dup_rows(df: pd.DataFrame) -> set:
-    """Return indices of ALL rows that are exact duplicates of another row."""
-    return set(df.index[df.duplicated(keep=False)])
+    # ── 4. Per-column validity ────────────────────────────────────────────────
+    validity_count = 0
+    for col in preview.columns:
+        s = preview[col]
 
+        # Negative monetary values
+        is_money = bool(re.search(
+            r"(amount|price|cost|revenue|salary|fee|total|value)", col, re.IGNORECASE))
+        if is_money and pd.api.types.is_numeric_dtype(s):
+            neg_idx = s[s < 0].index
+            validity_count += len(neg_idx)
+            for idx in neg_idx:
+                add(idx, col, 3, "#2a1d00", "#E3B341",
+                    f"⚠ Negative monetary value ({s[idx]:,.2f}) — monetary columns "
+                    f"should be ≥ 0. Could be an uncoded refund, credit note, "
+                    f"or a sign-convention mismatch between systems.")
 
-def find_invalid_cells(df: pd.DataFrame) -> set:
-    """Return set of (row_idx, col) for cells with validity issues."""
-    invalid = set()
-    for col in df.columns:
-        if re.search(r"(amount|price|cost|revenue|salary|fee|total)", col, re.IGNORECASE):
-            if pd.api.types.is_numeric_dtype(df[col]):
-                for idx in df.index[df[col] < 0]:
-                    invalid.add((idx, col))
+        # Date issues
         if re.search(r"(date|time|created|updated|timestamp)", col, re.IGNORECASE):
             try:
-                parsed = pd.to_datetime(df[col], errors="coerce")
-                for idx in parsed.index[parsed > pd.Timestamp.now()]:
-                    invalid.add((idx, col))
-                for idx in df.index[parsed.isna() & df[col].notna()]:
-                    invalid.add((idx, col))
+                parsed = pd.to_datetime(s, errors="coerce")
+                now = pd.Timestamp.now()
+                # Future dates
+                for idx in parsed[parsed > now].index:
+                    days_ahead = (parsed[idx] - now).days
+                    validity_count += 1
+                    add(idx, col, 3, "#2a1d00", "#E3B341",
+                        f"⚠ Future date ({s[idx]}) — {days_ahead:,} day"
+                        f"{'s' if days_ahead != 1 else ''} ahead of today. "
+                        f"Verify: intentional scheduled event, or a year/month "
+                        f"transposition error?")
+                # Unparseable non-null values
+                bad_idx = parsed[parsed.isna() & s.notna()].index
+                validity_count += len(bad_idx)
+                for idx in bad_idx:
+                    add(idx, col, 3, "#2a1d00", "#E3B341",
+                        f"⚠ Invalid date format '{s[idx]}' — cannot be parsed. "
+                        f"Standardize to ISO 8601 (YYYY-MM-DD) for reliable "
+                        f"sorting, filtering, and time-series operations.")
             except Exception:
                 pass
-    return invalid
+
+        # Numeric outliers (3× IQR — extreme values only)
+        if pd.api.types.is_numeric_dtype(s):
+            non_null = s.dropna()
+            if len(non_null) > 10:
+                q25, q75 = non_null.quantile(0.25), non_null.quantile(0.75)
+                iqr = q75 - q25
+                if iqr > 0:
+                    lo, hi = q25 - 3 * iqr, q75 + 3 * iqr
+                    for idx in preview.index:
+                        val = s[idx]
+                        if pd.notna(val) and (val < lo or val > hi):
+                            direction = "low" if val < lo else "high"
+                            validity_count += 1
+                            add(idx, col, 4, "#0d1525", "#79C0FF",
+                                f"◈ Statistical outlier ({val:,.2f}) — extreme {direction} "
+                                f"value. Normal range: {lo:,.1f} → {hi:,.1f} (3× IQR). "
+                                f"Verify: unit mismatch, manual entry error, "
+                                f"or genuine edge case?")
+
+    # ── Build output maps ─────────────────────────────────────────────────────
+    color_map, tooltip_map = {}, {}
+    for (idx, col), issues in cell_data.items():
+        issues.sort(key=lambda x: x[0])   # highest priority wins for color
+        _, bg, fg, _ = issues[0]
+        color_map[(idx, col)] = f"background-color:{bg};color:{fg};font-weight:600"
+        seen, tips = [], []
+        for _, _, _, tip in issues:
+            if tip not in seen:
+                seen.append(tip)
+                tips.append(tip)
+        tooltip_map[(idx, col)] = "<br><br>".join(tips[:2])
+
+    counts = {
+        "nulls":       null_count,
+        "orphan_rows": len(orphan_rows),
+        "dup_rows":    len(dup_rows_set),
+        "validity":    validity_count,
+    }
+    return color_map, tooltip_map, counts
+
+
+def _build_preview_html(df: pd.DataFrame, color_map: dict,
+                         tooltip_map: dict) -> str:
+    """Render an HTML table with color-coded cells and hover tooltips."""
+    cols = list(df.columns)
+
+    # Header
+    th = "".join(f"<th>{c}</th>" for c in cols)
+    rows_html = [f"<thead><tr><th>#</th>{th}</tr></thead><tbody>"]
+
+    for idx in df.index:
+        row_cells = [f'<td style="color:#484F58;font-size:10px;'
+                     f'border-right:1px solid #30363D">{idx + 1}</td>']
+        for col in cols:
+            raw = df.loc[idx, col]
+            display = "∅" if pd.isna(raw) else str(raw)[:45] + ("…" if len(str(raw)) > 45 else "")
+            style = color_map.get((idx, col), "")
+            tip   = tooltip_map.get((idx, col), "")
+
+            if style or tip:
+                safe_tip = tip.replace('"', "&quot;").replace("<br><br>", " | ")
+                row_cells.append(
+                    f'<td class="dq-c" style="{style}">'
+                    f'<span class="dq-v">{display}</span>'
+                    f'<div class="dq-t">{tip}</div>'
+                    f'</td>'
+                )
+            else:
+                row_cells.append(f"<td>{display}</td>")
+
+        rows_html.append(f"<tr>{''.join(row_cells)}</tr>")
+
+    rows_html.append("</tbody>")
+    return f"<table class='dq-tbl'>{''.join(rows_html)}</table>"
 
 
 def render_data_preview(dfs: dict, joins: list):
-    """Render annotated data preview with problem cells highlighted."""
+    """Render annotated data preview — HTML table with per-cell hover tooltips."""
     st.markdown('<hr class="dq-divider">', unsafe_allow_html=True)
     st.markdown("""
     <div class="section-header">Annotated Data Preview</div>
     <div class="section-title">Your Data — Problems Highlighted</div>
     <div class="section-sub">
-      Diagnosis applied directly to your data. Every highlighted cell is a real issue found in your files.
+      Hover over any coloured cell to see the exact data quality issue on that value.
     </div>
     """, unsafe_allow_html=True)
 
-    # Legend
+    # Inject table CSS (once)
     st.markdown("""
-    <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:16px;
-                padding:12px 16px;background:#161B22;border:1px solid #21262D;border-radius:8px">
-      <span style="font-size:12px;color:#F85149">🔴&nbsp; Missing / null value</span>
-      <span style="font-size:12px;color:#F0883E">🟠&nbsp; Orphan record (no match in related file)</span>
-      <span style="font-size:12px;color:#58A6FF">🔵&nbsp; Exact duplicate row</span>
-      <span style="font-size:12px;color:#E3B341">🟡&nbsp; Invalid value (negative amount / bad date)</span>
+    <style>
+    .dq-wrap{overflow-x:auto;overflow-y:auto;max-height:480px;
+             border:1px solid #21262D;border-radius:10px;margin-bottom:8px}
+    .dq-tbl{border-collapse:collapse;width:100%;font-size:12px;
+            font-family:'JetBrains Mono',monospace;white-space:nowrap}
+    .dq-tbl th{position:sticky;top:0;background:#161B22;color:#8B949E;
+               font-size:10px;font-weight:700;text-transform:uppercase;
+               letter-spacing:.5px;padding:10px 14px;
+               border-bottom:1px solid #30363D;text-align:left;z-index:10}
+    .dq-tbl td{padding:7px 14px;border-bottom:1px solid #21262D;
+               color:#C9D1D9;position:relative;max-width:220px;
+               overflow:hidden;text-overflow:ellipsis}
+    .dq-tbl tr:last-child td{border-bottom:none}
+    .dq-tbl tr:hover td{filter:brightness(1.08)}
+    /* Tooltip */
+    .dq-c{cursor:help}
+    .dq-t{display:none;position:absolute;bottom:calc(100% + 6px);left:0;
+          background:#1C2128;border:1px solid #58A6FF;border-radius:8px;
+          color:#E6EDF3;font-size:11px;font-family:'Inter',sans-serif;
+          font-weight:400;padding:10px 14px;min-width:240px;max-width:320px;
+          white-space:normal;line-height:1.6;z-index:9999;
+          box-shadow:0 8px 28px rgba(0,0,0,.75);pointer-events:none}
+    .dq-c:hover .dq-t{display:block}
+    /* Legend chips */
+    .dq-leg{display:flex;gap:18px;flex-wrap:wrap;padding:10px 14px;
+            background:#161B22;border:1px solid #21262D;border-radius:8px;
+            margin-bottom:12px;font-size:12px}
+    </style>
+    <div class="dq-leg">
+      <span style="color:#F85149">🔴 Missing / null</span>
+      <span style="color:#F0883E">🟠 Orphan record</span>
+      <span style="color:#58A6FF">🔵 Duplicate row</span>
+      <span style="color:#E3B341">🟡 Invalid value</span>
+      <span style="color:#79C0FF">◈ Outlier</span>
+      <span style="color:#6E7681;font-style:italic">Hover any cell for details</span>
     </div>
     """, unsafe_allow_html=True)
 
@@ -766,61 +949,27 @@ def render_data_preview(dfs: dict, joins: list):
     for tab, (name, df) in zip(tabs, dfs.items()):
         with tab:
             preview = df.head(100).reset_index(drop=True)
-
-            orphan_indices, orphan_cols = find_orphan_rows(df.head(100), name, dfs, joins)
-            dup_indices    = find_dup_rows(preview)
-            invalid_cells  = find_invalid_cells(preview)
-
-            # Counts for metrics
-            null_count   = int(preview.isna().sum().sum())
-            orphan_count = len(orphan_indices)
-            dup_count    = len(dup_indices)
-            invalid_count = len(invalid_cells)
+            color_map, tooltip_map, counts = _analyze_preview_issues(
+                preview, name, dfs, joins)
 
             # Metrics row
             m1, m2, m3, m4, m5 = st.columns(5)
-            m1.metric("Rows shown",     f"{len(preview):,} / {len(df):,}")
-            m2.metric("Missing values", null_count,    delta=f"-{null_count}"    if null_count    else None, delta_color="inverse")
-            m3.metric("Orphan rows",    orphan_count,  delta=f"-{orphan_count}"  if orphan_count  else None, delta_color="inverse")
-            m4.metric("Duplicate rows", dup_count,     delta=f"-{dup_count}"     if dup_count     else None, delta_color="inverse")
-            m5.metric("Invalid cells",  invalid_count, delta=f"-{invalid_count}" if invalid_count else None, delta_color="inverse")
+            m1.metric("Rows shown",    f"{len(preview):,} / {len(df):,}")
+            m2.metric("Missing cells", counts["nulls"],
+                      delta=f"-{counts['nulls']}"       if counts["nulls"]       else None, delta_color="inverse")
+            m3.metric("Orphan rows",   counts["orphan_rows"],
+                      delta=f"-{counts['orphan_rows']}" if counts["orphan_rows"] else None, delta_color="inverse")
+            m4.metric("Duplicate rows",counts["dup_rows"],
+                      delta=f"-{counts['dup_rows']}"    if counts["dup_rows"]    else None, delta_color="inverse")
+            m5.metric("Validity issues",counts["validity"],
+                      delta=f"-{counts['validity']}"    if counts["validity"]    else None, delta_color="inverse")
 
-            # Build styler
-            def _make_style_fn(preview, orphan_indices, orphan_cols, dup_indices, invalid_cells):
-                def style_row(row):
-                    styles = []
-                    idx = row.name
-                    for col in preview.columns:
-                        val = row[col]
-                        is_null = pd.isna(val) or (isinstance(val, str) and val.strip() == "")
-                        is_orphan_col = col in orphan_cols
-                        is_orphan_row = idx in orphan_indices
-                        is_dup        = idx in dup_indices
-                        is_invalid    = (idx, col) in invalid_cells
+            # HTML table
+            table_html = _build_preview_html(preview, color_map, tooltip_map)
+            st.markdown(f'<div class="dq-wrap">{table_html}</div>',
+                        unsafe_allow_html=True)
 
-                        if is_null:
-                            styles.append("background-color:#3d0f0f;color:#F85149;font-weight:700")
-                        elif is_orphan_row and is_orphan_col:
-                            styles.append("background-color:#2d1500;color:#F0883E;font-weight:700")
-                        elif is_orphan_row:
-                            styles.append("background-color:#1a0d00;color:#c97a50")
-                        elif is_dup:
-                            styles.append("background-color:#0d1a2d;color:#58A6FF")
-                        elif is_invalid:
-                            styles.append("background-color:#2a1d00;color:#E3B341;font-weight:700")
-                        else:
-                            styles.append("")
-                    return styles
-                return style_row
-
-            styled = preview.style.apply(
-                _make_style_fn(preview, orphan_indices, orphan_cols, dup_indices, invalid_cells),
-                axis=1
-            )
-
-            st.dataframe(styled, use_container_width=True, height=420)
-
-            if null_count == 0 and orphan_count == 0 and dup_count == 0 and invalid_count == 0:
+            if not color_map:
                 st.success("✅ No issues detected in the visible rows of this file.")
 
 
