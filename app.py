@@ -1861,7 +1861,7 @@ def run_analysis(uploaded_files, cfg=None) -> tuple:
 # Simple-mode helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def render_simple_findings(R: dict):
+def render_simple_findings(R: dict, light: bool = False):
     """Translate top findings into 3 plain-English cards for non-technical users."""
     findings = []
     for f in R["orphans"].get("findings", [])[:1]:
@@ -1883,36 +1883,46 @@ def render_simple_findings(R: dict):
     if not findings:
         st.success("No major issues found — your data looks solid.")
         return
+
+    title_color = "#111827" if light else "#E6EDF3"
+    card_bg     = "#FFF7F0" if light else "#161B22"
+    card_border = "#FDA172" if light else "#30363D"
+    txt_color   = "#374151" if light else "#C9D1D9"
+
     st.markdown(
-        "<div style='font-size:18px;font-weight:800;color:#E6EDF3;margin:24px 0 12px'>"
+        f"<div style='font-size:18px;font-weight:800;color:{title_color};margin:24px 0 12px'>"
         "What's wrong with your data</div>",
         unsafe_allow_html=True,
     )
     for txt in findings:
         st.markdown(
-            f"<div style='background:#161B22;border:1px solid #30363D;"
+            f"<div style='background:{card_bg};border:1px solid {card_border};"
             f"border-left:4px solid #F0883E;border-radius:8px;padding:16px 20px;"
-            f"margin-bottom:10px;font-size:14px;color:#C9D1D9'>⚠️ &nbsp;{txt}</div>",
+            f"margin-bottom:10px;font-size:14px;color:{txt_color}'>⚠️ &nbsp;{txt}</div>",
             unsafe_allow_html=True,
         )
 
 
-def _render_simple_impact(R: dict):
+def _render_simple_impact(R: dict, light: bool = False):
     """Business impact teaser for Simple mode — total only, no itemized breakdown."""
     impact = R["impact"]
     if not impact.get("items"):
         return
     st.markdown('<hr class="dq-divider">', unsafe_allow_html=True)
+
+    lbl_color = "#6B7280" if light else "#6E7681"
+    sub_color = "#4B5563" if light else "#8B949E"
+
     if impact.get("has_monetary") and impact.get("total"):
         total = impact["total"]
         st.markdown(f"""
         <div class="impact-box">
           <div style="font-size:12px;font-weight:700;text-transform:uppercase;
-                      letter-spacing:1px;color:#6E7681;margin-bottom:6px">
+                      letter-spacing:1px;color:{lbl_color};margin-bottom:6px">
             Estimated financial impact
           </div>
           <div class="impact-total">~${total:,.0f}</div>
-          <div style="font-size:13px;color:#8B949E;margin-top:8px">
+          <div style="font-size:13px;color:{sub_color};margin-top:8px">
             estimated revenue / pipeline at risk from data quality issues
           </div>
         </div>""", unsafe_allow_html=True)
@@ -1921,11 +1931,11 @@ def _render_simple_impact(R: dict):
         st.markdown(f"""
         <div class="impact-box">
           <div style="font-size:12px;font-weight:700;text-transform:uppercase;
-                      letter-spacing:1px;color:#6E7681;margin-bottom:6px">
+                      letter-spacing:1px;color:{lbl_color};margin-bottom:6px">
             Records affected
           </div>
           <div class="impact-total">{count:,}</div>
-          <div style="font-size:13px;color:#8B949E;margin-top:8px">
+          <div style="font-size:13px;color:{sub_color};margin-top:8px">
             records involved in data quality issues
           </div>
         </div>""", unsafe_allow_html=True)
@@ -1950,24 +1960,35 @@ def main():
     tog_l, tog_r, _ = st.columns([1, 1, 3])
     with tog_l:
         simple_active = st.session_state["mode"] == "simple"
-        simple_style  = "border:2px solid #3FB950;background:#0d1f0f;" if simple_active else "border:1px solid #30363D;background:#161B22;"
+        if simple_active:
+            s_style = "border:2px solid #4F46E5;background:#EEF2FF;"
+            s_color = "#4F46E5"
+        else:
+            s_style = "border:1px solid #30363D;background:#161B22;"
+            s_color = "#C9D1D9"
+        s_sub = "#4B5563" if simple_active else "#6E7681"
         st.markdown(f"""
-        <div style="{simple_style}border-radius:10px;padding:12px 16px;text-align:center;margin-bottom:4px">
+        <div style="{s_style}border-radius:10px;padding:12px 16px;text-align:center;margin-bottom:4px">
           <div style="font-size:18px">🟢</div>
-          <div style="font-size:13px;font-weight:700;color:#{'3FB950' if simple_active else 'C9D1D9'};margin-top:4px">Simple</div>
-          <div style="font-size:11px;color:#6E7681;margin-top:2px">I just want to know<br>if my data is OK</div>
+          <div style="font-size:13px;font-weight:700;color:{s_color};margin-top:4px">Simple</div>
+          <div style="font-size:11px;color:{s_sub};margin-top:2px">I just want to know<br>if my data is OK</div>
         </div>""", unsafe_allow_html=True)
         if st.button("Select Simple", key="btn_simple", use_container_width=True,
                      type="primary" if simple_active else "secondary"):
             st.session_state["mode"] = "simple"
             st.rerun()
     with tog_r:
-        adv_active   = st.session_state["mode"] == "advanced"
-        adv_style    = "border:2px solid #58A6FF;background:#0d1422;" if adv_active else "border:1px solid #30363D;background:#161B22;"
+        adv_active = st.session_state["mode"] == "advanced"
+        if adv_active:
+            a_style = "border:2px solid #58A6FF;background:#0d1422;"
+            a_color = "#58A6FF"
+        else:
+            a_style = "border:1px solid #30363D;background:#161B22;"
+            a_color = "#C9D1D9"
         st.markdown(f"""
-        <div style="{adv_style}border-radius:10px;padding:12px 16px;text-align:center;margin-bottom:4px">
+        <div style="{a_style}border-radius:10px;padding:12px 16px;text-align:center;margin-bottom:4px">
           <div style="font-size:18px">⚙️</div>
-          <div style="font-size:13px;font-weight:700;color:#{'58A6FF' if adv_active else 'C9D1D9'};margin-top:4px">Advanced</div>
+          <div style="font-size:13px;font-weight:700;color:{a_color};margin-top:4px">Advanced</div>
           <div style="font-size:11px;color:#6E7681;margin-top:2px">I'm a data professional<br>& want full details</div>
         </div>""", unsafe_allow_html=True)
         if st.button("Select Advanced", key="btn_advanced", use_container_width=True,
@@ -1976,6 +1997,83 @@ def main():
             st.rerun()
 
     simple = st.session_state["mode"] == "simple"
+
+    # ── LIGHT THEME (Simple mode only) ───────────────────────────────────────
+    if simple:
+        st.markdown("""
+        <style>
+        /* ── Page background ── */
+        .stApp, [data-testid="stAppViewContainer"],
+        [data-testid="stMain"], section[data-testid="stMain"],
+        .main, .block-container { background: #F8FAFC !important; }
+
+        /* ── Hero ── */
+        .hero { background: linear-gradient(135deg,#FFFFFF 0%,#EEF2FF 60%,#E0E7FF 100%) !important;
+                border-color: #C7D2FE !important; }
+        .hero::before { background: linear-gradient(90deg,#6366F1,#8B5CF6,#EC4899,#F59E0B,#10B981) !important; }
+        .hero h1 { color: #111827 !important; }
+        .hero h1 span { color: #4F46E5 !important; }
+        .hero-sub { color: #4B5563 !important; }
+        .hero-eyebrow { color: #4F46E5 !important; }
+
+        /* ── Cards / generic containers ── */
+        .card { background: #FFFFFF !important; border-color: #E5E7EB !important; }
+        .card-title { color: #6B7280 !important; }
+
+        /* ── Section typography ── */
+        .section-header { color: #4F46E5 !important; }
+        .section-title  { color: #111827 !important; }
+        .section-sub    { color: #6B7280 !important; }
+
+        /* ── Score reveal ── */
+        .score-label { color: #111827 !important; }
+        .benchmark-badge { background:#F3F4F6 !important; border-color:#E5E7EB !important; color:#4B5563 !important; }
+        .dim-row .dim-name { color: #374151 !important; }
+        .dim-row .dim-val  { color: #111827 !important; }
+        .dim-row .dim-sub  { color: #6B7280 !important; }
+        .dim-track { background: #E5E7EB !important; }
+
+        /* ── Insight cards ── */
+        .insight-card  { background: #FFFFFF !important; border-color: #E5E7EB !important; }
+        .insight-title { color: #111827 !important; }
+        .insight-text  { color: #4B5563 !important; }
+
+        /* ── Findings ── */
+        .finding { background: #FFFFFF !important; }
+        .finding-title    { color: #111827 !important; }
+        .finding-detail   { color: #4B5563 !important; }
+        .finding-headline { color: #111827 !important; }
+        .ex-code { background: #F3F4F6 !important; border-color: #E5E7EB !important; color: #4F46E5 !important; }
+
+        /* ── Rec cards ── */
+        .rec-teaser { background: #FFFFFF !important; border-color: #E5E7EB !important; }
+        .rec-blur   { background: #F3F4F6 !important; border-color: #E5E7EB !important; }
+
+        /* ── Impact box ── */
+        .impact-box { background: linear-gradient(135deg,#FFF7F7,#FFFBF0) !important;
+                      border-color: #FECACA !important; }
+        .impact-total { color: #DC2626 !important; }
+
+        /* ── Lock box ── */
+        .locked-box { background: linear-gradient(135deg,#F8FAFC,#EEF2FF) !important;
+                      border-color: #6366F1 !important; }
+        .locked-box::before { background: linear-gradient(90deg,#6366F1,#8B5CF6) !important; }
+
+        /* ── Flow section ── */
+        .flow-section { background: #F1F5F9 !important; border-color: #E2E8F0 !important; }
+
+        /* ── HR divider ── */
+        hr.dq-divider, .dq-divider { border-color: #E5E7EB !important; }
+
+        /* ── Streamlit native elements ── */
+        [data-testid="stFileUploadDropzone"] {
+            background: #FFFFFF !important; border-color: #C7D2FE !important; }
+        [data-testid="stFileUploadDropzone"] p,
+        [data-testid="stFileUploadDropzone"] span { color: #374151 !important; }
+        [data-testid="stFileUploader"] label { color: #374151 !important; }
+        .stAlert { background: #FFFFFF !important; }
+        </style>
+        """, unsafe_allow_html=True)
 
     # ── HERO ─────────────────────────────────────────────────────────────────
     if simple:
@@ -2051,10 +2149,10 @@ def main():
 
     if simple:
         st.markdown("""
-        <div style="font-size:18px;font-weight:700;color:#E6EDF3;margin:24px 0 8px">
+        <div style="font-size:18px;font-weight:700;color:#111827;margin:24px 0 4px">
           Upload your file
         </div>
-        <div style="font-size:13px;color:#8B949E;margin-bottom:12px">
+        <div style="font-size:13px;color:#4B5563;margin-bottom:12px">
           Supports CSV files exported from Excel, Google Sheets, or any database.
         </div>
         """, unsafe_allow_html=True)
@@ -2067,9 +2165,12 @@ def main():
             ) or []
         with info_col:
             st.markdown("""
-            <div class="card">
-              <div class="card-title">What you'll get</div>
-              <div style="font-size:12px;color:#8B949E;line-height:2.2">
+            <div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:12px;padding:20px">
+              <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;
+                          text-transform:uppercase;color:#6B7280;margin-bottom:14px">
+                What you'll get
+              </div>
+              <div style="font-size:13px;color:#374151;line-height:2.4">
                 📊 &nbsp;A score for your data (A–F)<br>
                 🔴 &nbsp;Problems highlighted in your file<br>
                 💬 &nbsp;Plain-English explanation<br>
@@ -2201,8 +2302,8 @@ def main():
     if simple:
         # ── SIMPLE MODE RESULTS ────────────────────────────────────────────────
         render_data_preview(R["dfs"], R["joins"])
-        render_simple_findings(R)
-        _render_simple_impact(R)
+        render_simple_findings(R, light=True)
+        _render_simple_impact(R, light=True)
 
     else:
         # ── ADVANCED MODE RESULTS ──────────────────────────────────────────────
