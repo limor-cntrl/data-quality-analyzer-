@@ -1861,84 +1861,301 @@ def run_analysis(uploaded_files, cfg=None) -> tuple:
 # Simple-mode helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def render_simple_findings(R: dict, light: bool = False):
-    """Translate top findings into 3 plain-English cards for non-technical users."""
-    findings = []
+def render_simple_dashboard(R: dict):
+    """Full BI-style dashboard grid for Simple mode — mirrors professional ops-dashboard aesthetic."""
+    scores  = R["score_data"]["scores"]
+    details = R["score_data"]["details"]
+    overall = scores["overall"]
+    grade, gc = overall_grade(overall)
+    lbl, _    = score_label(overall)
+    bench     = details.get("benchmark", "")
+    urgency   = details.get("urgency", "")
+
+    n_orphans  = sum(f["orphan_count"]    for f in R["orphans"].get("findings", []))
+    n_dupes    = sum(f["duplicate_count"] for f in R["dupes"].get("findings", []))
+    n_gaps     = sum(f["missing_count"]   for f in R["gaps"].get("findings", []))
+    rows_total = sum(len(df) for df in R["dfs"].values())
+    file_names = " · ".join(R["dfs"].keys())
+
+    # ── Severity badge counts ──────────────────────────────────────────────────
+    n_critical = (
+        sum(1 for f in R["orphans"].get("findings",[]) if f["pct_of_source"] > 25) +
+        sum(1 for f in R["dupes"].get("findings",[])   if f["duplicate_count"] > 10)
+    )
+    n_high   = sum(1 for f in R["orphans"].get("findings",[]) if 8 < f["pct_of_source"] <= 25)
+    n_medium = sum(1 for f in R["gaps"].get("findings",[]))
+
+    badge_html = ""
+    if n_critical:
+        badge_html += f'<span style="background:#F85149;color:#fff;font-size:11px;font-weight:700;padding:4px 12px;border-radius:999px;margin-left:8px">{n_critical} Critical</span>'
+    if n_high:
+        badge_html += f'<span style="background:#F0883E;color:#0D1117;font-size:11px;font-weight:700;padding:4px 12px;border-radius:999px;margin-left:8px">{n_high} High</span>'
+    if n_medium:
+        badge_html += f'<span style="background:#E3B341;color:#0D1117;font-size:11px;font-weight:700;padding:4px 12px;border-radius:999px;margin-left:8px">{n_medium} Medium</span>'
+    if not badge_html:
+        badge_html = '<span style="background:#238636;color:#fff;font-size:11px;font-weight:700;padding:4px 12px;border-radius:999px;margin-left:8px">✓ Clean</span>'
+
+    # ── Dimension bars HTML ────────────────────────────────────────────────────
+    dim_html = ""
+    for key, label, _ in DIMS:
+        val = scores.get(key)
+        if val is None:
+            dim_html += f"""
+            <div style="margin-bottom:13px">
+              <div style="display:flex;justify-content:space-between;margin-bottom:5px">
+                <span style="font-size:12px;font-weight:600;color:#C9D1D9">{label}</span>
+                <span style="font-size:12px;font-weight:700;color:#484F58;font-family:'JetBrains Mono',monospace">N/A</span>
+              </div>
+              <div style="background:#21262D;border-radius:999px;height:8px"></div>
+              <div style="font-size:10px;color:#484F58;margin-top:3px">Single-file upload</div>
+            </div>"""
+            continue
+        c  = score_color(val)
+        ld, _ = score_label(val)
+        dim_html += f"""
+        <div style="margin-bottom:13px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:5px">
+            <span style="font-size:12px;font-weight:600;color:#C9D1D9">{label}</span>
+            <span style="font-size:12px;font-weight:700;color:{c};font-family:'JetBrains Mono',monospace">{val:.0f}</span>
+          </div>
+          <div style="background:#21262D;border-radius:999px;height:8px;overflow:hidden">
+            <div style="width:{val}%;background:linear-gradient(90deg,{c}88,{c});height:8px;border-radius:999px"></div>
+          </div>
+          <div style="font-size:10px;color:#484F58;margin-top:3px">{ld}</div>
+        </div>"""
+
+    # ── Issue cards HTML ───────────────────────────────────────────────────────
+    issue_html = ""
     for f in R["orphans"].get("findings", [])[:1]:
         left = f["direction"].split("→")[0].strip()
-        findings.append(
-            f"<strong>{f['orphan_count']:,} rows</strong> in <em>{left}</em> "
-            f"don't match anything in the other file — they'll be invisible in any report."
-        )
+        ic = "#F85149" if f["pct_of_source"] > 25 else "#F0883E"
+        sev_lbl = "CRITICAL" if f["pct_of_source"] > 25 else "HIGH"
+        issue_html += f"""
+        <div style="background:#0D1117;border:1px solid #30363D;border-left:4px solid {ic};
+                    border-radius:8px;padding:14px 16px;margin-bottom:10px">
+          <div style="font-size:10px;font-weight:700;color:{ic};text-transform:uppercase;
+                      letter-spacing:1.2px;margin-bottom:6px">⚠ {sev_lbl} · Referential Integrity</div>
+          <div style="font-size:13px;color:#C9D1D9;line-height:1.6">
+            <strong style="color:#E6EDF3">{f['orphan_count']:,} rows</strong> in
+            <em style="color:#79C0FF">{left}</em> have no match in the linked file.
+            These records are invisible in every join, report, and aggregation.
+          </div>
+        </div>"""
     for f in R["dupes"].get("findings", [])[:1]:
-        findings.append(
-            f"<em>{f['file']}</em> contains <strong>{f['duplicate_count']:,} duplicate entries</strong> "
-            f"for the same {f['type']}. Every count or total built on this is wrong."
-        )
+        dc = "#F85149" if f["duplicate_count"] > 10 else "#F0883E"
+        sev_lbl = "CRITICAL" if f["duplicate_count"] > 10 else "HIGH"
+        issue_html += f"""
+        <div style="background:#0D1117;border:1px solid #30363D;border-left:4px solid {dc};
+                    border-radius:8px;padding:14px 16px;margin-bottom:10px">
+          <div style="font-size:10px;font-weight:700;color:{dc};text-transform:uppercase;
+                      letter-spacing:1.2px;margin-bottom:6px">⚠ {sev_lbl} · Duplicate Entries</div>
+          <div style="font-size:13px;color:#C9D1D9;line-height:1.6">
+            <em style="color:#79C0FF">{f['file']}</em> has
+            <strong style="color:#E6EDF3">{f['duplicate_count']} duplicate {f['type']}</strong> entries.
+            Every metric, count, and KPI built on this table is currently wrong.
+          </div>
+        </div>"""
     for f in R["gaps"].get("findings", [])[:1]:
-        findings.append(
-            f"<strong>{f['pct_of_upstream']}%</strong> of records start at "
-            f"<em>{f['stage_from']}</em> but never reach <em>{f['stage_to']}</em>."
+        gc2 = "#F85149" if f["pct_of_upstream"] > 20 else "#E3B341"
+        sev_lbl = "HIGH" if f["pct_of_upstream"] > 5 else "MEDIUM"
+        issue_html += f"""
+        <div style="background:#0D1117;border:1px solid #30363D;border-left:4px solid {gc2};
+                    border-radius:8px;padding:14px 16px;margin-bottom:10px">
+          <div style="font-size:10px;font-weight:700;color:{gc2};text-transform:uppercase;
+                      letter-spacing:1.2px;margin-bottom:6px">⚠ {sev_lbl} · Pipeline Gap</div>
+          <div style="font-size:13px;color:#C9D1D9;line-height:1.6">
+            <strong style="color:#E6EDF3">{f['pct_of_upstream']}%</strong> of records enter
+            <em style="color:#79C0FF">{f['stage_from']}</em> but never reach
+            <em style="color:#79C0FF">{f['stage_to']}</em>. SLA violations and audit gaps.
+          </div>
+        </div>"""
+    if not issue_html:
+        issue_html = """
+        <div style="background:#0D1117;border:1px solid #238636;border-radius:8px;
+                    padding:20px;text-align:center">
+          <div style="font-size:28px;margin-bottom:8px">✓</div>
+          <div style="font-size:14px;font-weight:700;color:#3FB950">No critical issues found</div>
+          <div style="font-size:12px;color:#6E7681;margin-top:4px">Your data relationships look clean.</div>
+        </div>"""
+
+    # ── Impact block ───────────────────────────────────────────────────────────
+    impact = R.get("impact", {})
+    if impact.get("has_monetary") and impact.get("total"):
+        impact_html = f"""
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;
+                    color:#484F58;margin-bottom:8px">Estimated Revenue at Risk</div>
+        <div style="font-size:44px;font-weight:900;color:#F85149;
+                    font-family:'JetBrains Mono',monospace;line-height:1">
+          ~${impact['total']:,.0f}
+        </div>
+        <div style="font-size:11px;color:#6E7681;margin-top:6px">
+          based on avg transaction value ${impact['avg_value']:,.0f}
+        </div>"""
+    else:
+        at_risk = n_orphans + n_dupes + n_gaps
+        impact_html = f"""
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;
+                    color:#484F58;margin-bottom:8px">Records at Risk</div>
+        <div style="font-size:44px;font-weight:900;color:#F0883E;
+                    font-family:'JetBrains Mono',monospace;line-height:1">
+          {at_risk:,}
+        </div>
+        <div style="font-size:11px;color:#6E7681;margin-top:6px">rows with confirmed quality issues</div>"""
+
+    n_fixes    = len(R["recs"])
+    n_critical_fixes = sum(1 for r in R["recs"] if r["severity"] == "critical")
+    today      = datetime.now().strftime("%b %d, %Y")
+
+    # ── Stat tiles ────────────────────────────────────────────────────────────
+    def stat_tile(val, label, color):
+        return (
+            f'<div style="background:#0D1117;border:1px solid #21262D;border-radius:8px;'
+            f'padding:16px 12px;text-align:center">'
+            f'<div style="font-size:26px;font-weight:900;color:{color};'
+            f'font-family:\'JetBrains Mono\',monospace;line-height:1">{val}</div>'
+            f'<div style="font-size:10px;color:#6E7681;margin-top:5px;font-weight:500">{label}</div>'
+            f'</div>'
         )
-    if not findings:
-        st.success("No major issues found — your data looks solid.")
-        return
 
-    title_color = "#111827" if light else "#E6EDF3"
-    card_bg     = "#FFF7F0" if light else "#161B22"
-    card_border = "#FDA172" if light else "#30363D"
-    txt_color   = "#374151" if light else "#C9D1D9"
+    orphan_c = "#F85149" if n_orphans > 0 else "#3FB950"
+    dup_c    = "#F85149" if n_dupes   > 0 else "#3FB950"
+    gap_c    = "#E3B341" if n_gaps    > 0 else "#3FB950"
 
-    st.markdown(
-        f"<div style='font-size:18px;font-weight:800;color:{title_color};margin:24px 0 12px'>"
-        "What's wrong with your data</div>",
-        unsafe_allow_html=True,
+    tiles_html = (
+        f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+        + stat_tile(f"{n_orphans:,}", "Orphan Records", orphan_c)
+        + stat_tile(str(n_dupes),     "Duplicates",     dup_c)
+        + stat_tile(f"{n_gaps:,}",    "Pipeline Gaps",  gap_c)
+        + stat_tile(f"{rows_total:,}","Rows Analyzed",  "#58A6FF")
+        + "</div>"
     )
-    for txt in findings:
-        st.markdown(
-            f"<div style='background:{card_bg};border:1px solid {card_border};"
-            f"border-left:4px solid #F0883E;border-radius:8px;padding:16px 20px;"
-            f"margin-bottom:10px;font-size:14px;color:{txt_color}'>⚠️ &nbsp;{txt}</div>",
-            unsafe_allow_html=True,
-        )
+
+    # ── Render full dashboard ─────────────────────────────────────────────────
+    st.markdown(f"""
+<div style="background:#0D1117;border:1px solid #30363D;border-radius:16px;
+            overflow:hidden;margin-bottom:28px;
+            box-shadow:0 8px 48px rgba(0,0,0,0.5)">
+
+  <!-- Header -->
+  <div style="background:#161B22;border-bottom:1px solid #21262D;
+              padding:18px 28px;display:flex;align-items:center;
+              justify-content:space-between">
+    <div>
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;
+                  letter-spacing:2px;color:#58A6FF;margin-bottom:4px">
+        🔬 Data Quality Report
+      </div>
+      <div style="font-size:15px;font-weight:700;color:#E6EDF3">{file_names}</div>
+    </div>
+    <div style="display:flex;align-items:center">
+      <span style="font-size:11px;color:#484F58;margin-right:12px">{today}</span>
+      {badge_html}
+    </div>
+  </div>
+
+  <!-- Row 1: Score | Dimensions | Stats -->
+  <div style="display:grid;grid-template-columns:1fr 1.5fr 1fr;gap:1px;
+              background:#21262D;border-bottom:1px solid #21262D">
+
+    <!-- Score panel -->
+    <div style="background:#0D1117;padding:24px 28px">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;
+                  letter-spacing:1.5px;color:#484F58;margin-bottom:14px">
+        Overall Score
+      </div>
+      <div style="font-size:72px;font-weight:900;line-height:1;
+                  color:{gc};font-family:'JetBrains Mono',monospace;
+                  text-shadow:0 0 40px {gc}33">{overall:.0f}</div>
+      <div style="font-size:15px;font-weight:700;color:{gc};margin-top:6px">{lbl}</div>
+      <div style="display:inline-block;background:#161B22;border:1px solid #30363D;
+                  border-radius:999px;padding:3px 12px;font-size:11px;color:#8B949E;
+                  margin-top:10px">{bench}</div>
+      <div style="font-size:12px;color:#8B949E;margin-top:12px;line-height:1.6">{urgency}</div>
+      <div style="margin-top:18px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:5px">
+          <span style="font-size:10px;color:#484F58">0</span>
+          <span style="font-size:10px;color:#484F58">100</span>
+        </div>
+        <div style="background:#21262D;border-radius:999px;height:10px;overflow:hidden">
+          <div style="width:{overall}%;background:linear-gradient(90deg,{gc}66,{gc});
+                      height:10px;border-radius:999px"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dimensions panel -->
+    <div style="background:#0D1117;padding:24px 28px">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;
+                  letter-spacing:1.5px;color:#484F58;margin-bottom:16px">
+        Score by Dimension
+      </div>
+      {dim_html}
+    </div>
+
+    <!-- Stats panel -->
+    <div style="background:#0D1117;padding:24px 28px">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;
+                  letter-spacing:1.5px;color:#484F58;margin-bottom:14px">
+        Issue Summary
+      </div>
+      {tiles_html}
+      <div style="border-top:1px solid #21262D;margin-top:16px;padding-top:16px">
+        {impact_html}
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Row 2: Issues | What's next -->
+  <div style="display:grid;grid-template-columns:1.6fr 1fr;gap:1px;background:#21262D">
+
+    <!-- Issues panel -->
+    <div style="background:#0D1117;padding:24px 28px">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;
+                  letter-spacing:1.5px;color:#484F58;margin-bottom:16px">
+        Top Issues Detected
+      </div>
+      {issue_html}
+    </div>
+
+    <!-- CTA panel -->
+    <div style="background:#0D1117;padding:24px 28px;
+                display:flex;flex-direction:column;justify-content:space-between">
+      <div>
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;
+                    letter-spacing:1.5px;color:#484F58;margin-bottom:14px">
+          Full Remediation Plan
+        </div>
+        <div style="font-size:13px;color:#8B949E;line-height:1.7;margin-bottom:16px">
+          Your report includes step-by-step SQL fix queries, root cause analysis,
+          and pipeline prevention rules for each issue found.
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div style="background:#161B22;border:1px solid #30363D;border-radius:6px;
+                      padding:8px 14px;font-size:11px;color:#C9D1D9;font-weight:600">
+            {n_fixes} fix{'es' if n_fixes != 1 else ''} ready
+          </div>
+          {"<div style='background:#3d0f0f;border:1px solid #F85149;border-radius:6px;padding:8px 14px;font-size:11px;color:#F85149;font-weight:600'>" + str(n_critical_fixes) + " critical</div>" if n_critical_fixes else ""}
+        </div>
+      </div>
+      <div style="margin-top:20px;font-size:11px;color:#484F58;line-height:1.5">
+        ↓ Scroll down to unlock the full plan
+      </div>
+    </div>
+
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+
+def render_simple_findings(R: dict, light: bool = False):
+    """Kept for compatibility — simple mode now uses render_simple_dashboard."""
+    pass
 
 
 def _render_simple_impact(R: dict, light: bool = False):
-    """Business impact teaser for Simple mode — total only, no itemized breakdown."""
-    impact = R["impact"]
-    if not impact.get("items"):
-        return
-    st.markdown('<hr class="dq-divider">', unsafe_allow_html=True)
-
-    lbl_color = "#6B7280" if light else "#6E7681"
-    sub_color = "#4B5563" if light else "#8B949E"
-
-    if impact.get("has_monetary") and impact.get("total"):
-        total = impact["total"]
-        st.markdown(f"""
-        <div class="impact-box">
-          <div style="font-size:12px;font-weight:700;text-transform:uppercase;
-                      letter-spacing:1px;color:{lbl_color};margin-bottom:6px">
-            Estimated financial impact
-          </div>
-          <div class="impact-total">~${total:,.0f}</div>
-          <div style="font-size:13px;color:{sub_color};margin-top:8px">
-            estimated revenue / pipeline at risk from data quality issues
-          </div>
-        </div>""", unsafe_allow_html=True)
-    else:
-        count = sum(i["count"] for i in impact["items"])
-        st.markdown(f"""
-        <div class="impact-box">
-          <div style="font-size:12px;font-weight:700;text-transform:uppercase;
-                      letter-spacing:1px;color:{lbl_color};margin-bottom:6px">
-            Records affected
-          </div>
-          <div class="impact-total">{count:,}</div>
-          <div style="font-size:13px;color:{sub_color};margin-top:8px">
-            records involved in data quality issues
-          </div>
-        </div>""", unsafe_allow_html=True)
+    """Kept for compatibility — simple mode now uses render_simple_dashboard."""
+    pass
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2212,16 +2429,15 @@ def main():
     R    = st.session_state.results
     recs = R["recs"]
 
-    # ── SCORE REVEAL — always shown ───────────────────────────────────────────
-    render_score_reveal(R)
-
     if simple:
-        # ── SIMPLE MODE RESULTS ────────────────────────────────────────────────
-        render_data_preview(R["dfs"], R["joins"])
-        render_simple_findings(R)
-        _render_simple_impact(R)
+        # ── SIMPLE MODE: full BI dashboard ────────────────────────────────────
+        render_simple_dashboard(R)
 
     else:
+        # ── ADVANCED MODE: score reveal first ─────────────────────────────────
+        render_score_reveal(R)
+
+    if not simple:
         # ── ADVANCED MODE RESULTS ──────────────────────────────────────────────
         render_executive_summary(R)
         render_missing_file_suggestions(R["dfs"], R["domain"])
