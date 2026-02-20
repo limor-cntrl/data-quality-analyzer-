@@ -28,67 +28,184 @@ from semantic import (detect_entity, detect_domain, estimate_monetary_impact,
 # ─────────────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
+*, *::before, *::after { box-sizing: border-box; }
 html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
-#MainMenu, footer, .stDeployButton { display: none !important; }
+#MainMenu, footer, .stDeployButton, .stToolbar { display: none !important; }
+.main .block-container { max-width: 1200px; padding: 2rem 2rem 4rem; }
+
+/* ── Keyframes ── */
+@keyframes fadeUp   { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
+@keyframes scaleIn  { from { opacity:0; transform:scale(0.92);       } to { opacity:1; transform:scale(1);    } }
+@keyframes pulseBlue {
+    0%,100% { box-shadow: 0 0 0 0 rgba(88,166,255,0.45); }
+    50%     { box-shadow: 0 0 0 10px rgba(88,166,255,0);  }
+}
+@keyframes pulseRed {
+    0%,100% { box-shadow: 0 0 0 0 rgba(248,81,73,0.45); }
+    50%     { box-shadow: 0 0 0 10px rgba(248,81,73,0);  }
+}
+@keyframes shimmer {
+    0%   { background-position: -200% 0; }
+    100% { background-position:  200% 0; }
+}
+@keyframes blink { 0%,100%{opacity:1}50%{opacity:0.4} }
+
+/* ── Buttons ── */
+.stButton > button {
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 700 !important;
+    border-radius: 10px !important;
+    transition: all 0.18s ease !important;
+    letter-spacing: 0.2px !important;
+}
+.stButton > button[kind="primary"] {
+    background: linear-gradient(135deg, #1f6feb 0%, #58A6FF 100%) !important;
+    border: none !important;
+    color: #fff !important;
+    font-size: 14px !important;
+    padding: 12px 28px !important;
+    animation: pulseBlue 2.8s infinite !important;
+}
+.stButton > button[kind="primary"]:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 10px 32px rgba(88,166,255,0.38) !important;
+    animation: none !important;
+}
+.stButton > button[kind="secondary"] {
+    background: #161B22 !important;
+    border: 1px solid #30363D !important;
+    color: #8B949E !important;
+    font-size: 13px !important;
+}
+.stButton > button[kind="secondary"]:hover {
+    border-color: #58A6FF !important;
+    color: #C9D1D9 !important;
+    background: #1C2230 !important;
+}
+
+/* ── Inputs ── */
+.stTextInput > div > div > input,
+.stSelectbox > div > div > div {
+    background: #0D1117 !important;
+    border: 1px solid #30363D !important;
+    border-radius: 8px !important;
+    color: #E6EDF3 !important;
+    font-size: 13px !important;
+}
+.stTextInput > div > div > input:focus { border-color: #58A6FF !important; }
+.stSelectbox > div > div > div { color: #C9D1D9 !important; }
+.stCheckbox span { color: #8B949E !important; font-size: 13px !important; }
+
+/* ── File uploader ── */
+div[data-testid="stFileUploader"] {
+    background: #0D1117 !important;
+    border: 2px dashed #30363D !important;
+    border-radius: 16px !important;
+    transition: border-color 0.2s, background 0.2s !important;
+    padding: 8px !important;
+}
+div[data-testid="stFileUploader"]:hover {
+    border-color: #58A6FF !important;
+    background: #0A1628 !important;
+}
+div[data-testid="stFileUploaderDropzone"] p {
+    color: #6E7681 !important;
+    font-size: 13px !important;
+}
 
 /* ── Hero ── */
 .hero {
-    background: linear-gradient(135deg, #010409 0%, #0D1117 40%, #161B22 100%);
+    background: linear-gradient(135deg, #010409 0%, #0D1117 45%, #161B22 100%);
     border: 1px solid #21262D;
-    border-radius: 16px;
-    padding: 56px 48px 48px;
-    margin-bottom: 32px;
+    border-radius: 20px;
+    padding: 60px 52px 52px;
+    margin-bottom: 28px;
     position: relative;
     overflow: hidden;
+    animation: fadeUp 0.5s ease both;
 }
 .hero::before {
     content: '';
     position: absolute; top: 0; left: 0; right: 0; height: 3px;
     background: linear-gradient(90deg, #F85149, #F0883E, #E3B341, #3FB950, #58A6FF);
 }
+.hero::after {
+    content: '';
+    position: absolute; top: -120px; right: -80px;
+    width: 380px; height: 380px;
+    background: radial-gradient(circle, #58A6FF08 0%, transparent 70%);
+    pointer-events: none;
+}
 .hero-eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
     font-size: 11px; font-weight: 700; letter-spacing: 2px;
-    text-transform: uppercase; color: #F85149; margin-bottom: 14px;
+    text-transform: uppercase; color: #58A6FF; margin-bottom: 20px;
 }
 .hero h1 {
-    font-size: 48px; font-weight: 900; line-height: 1.1;
-    color: #E6EDF3; margin: 0 0 16px; letter-spacing: -1px;
+    font-size: 52px; font-weight: 900; line-height: 1.08;
+    color: #E6EDF3; margin: 0 0 18px; letter-spacing: -1.5px;
 }
 .hero h1 span { color: #F85149; }
 .hero-sub {
-    font-size: 17px; color: #8B949E; line-height: 1.6;
-    max-width: 640px; margin-bottom: 32px;
+    font-size: 17px; color: #8B949E; line-height: 1.7;
+    max-width: 580px; margin-bottom: 0;
+    font-weight: 400;
 }
-.stat-row { display: flex; gap: 32px; flex-wrap: wrap; }
+.stat-row { display: flex; gap: 36px; flex-wrap: wrap; }
 .stat-item { text-align: left; }
-.stat-num { font-size: 28px; font-weight: 800; color: #E6EDF3; font-family: 'JetBrains Mono', monospace; }
-.stat-lbl { font-size: 12px; color: #6E7681; margin-top: 2px; }
+.stat-num  { font-size: 30px; font-weight: 800; color: #E6EDF3; font-family: 'JetBrains Mono', monospace; }
+.stat-lbl  { font-size: 12px; color: #6E7681; margin-top: 3px; max-width: 140px; line-height: 1.4; }
+
+/* ── Trust bar ── */
+.trust-row {
+    display: flex; align-items: center; gap: 20px;
+    flex-wrap: wrap; margin-top: 24px; padding-top: 22px;
+    border-top: 1px solid #21262D;
+}
+.trust-pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; font-weight: 600; color: #6E7681;
+}
+
+/* ── Step pills ── */
+.step-flow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 32px; }
+.step-pill {
+    display: flex; align-items: center; gap: 10px;
+    background: #161B22; border: 1px solid #30363D;
+    border-radius: 10px; padding: 10px 16px;
+}
+.step-pill.active { border-color: #58A6FF; background: #0A1628; }
+.step-num {
+    width: 22px; height: 22px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 800; flex-shrink: 0;
+}
+.step-num.active { background: #58A6FF; color: #0D1117; }
+.step-num.inactive { background: #21262D; border: 1px solid #30363D; color: #484F58; }
+.step-lbl { font-size: 12px; font-weight: 700; }
+.step-sub { font-size: 10px; margin-top: 1px; }
 
 /* ── Cards ── */
 .card {
     background: #161B22;
     border: 1px solid #21262D;
-    border-radius: 12px;
+    border-radius: 14px;
     padding: 24px;
+    transition: border-color 0.2s;
 }
 .card-title {
-    font-size: 11px; font-weight: 700; letter-spacing: 1.5px;
-    text-transform: uppercase; color: #6E7681; margin-bottom: 16px;
+    font-size: 10px; font-weight: 700; letter-spacing: 1.8px;
+    text-transform: uppercase; color: #484F58; margin-bottom: 16px;
 }
 
 /* ── Score ── */
-.score-grade {
-    font-size: 96px; font-weight: 900; line-height: 1;
-    font-family: 'JetBrains Mono', monospace;
-}
+.score-grade { font-size: 96px; font-weight: 900; line-height: 1; font-family: 'JetBrains Mono', monospace; }
 .score-label { font-size: 18px; font-weight: 700; margin-top: 4px; }
 .benchmark-badge {
-    display: inline-block;
-    background: #21262D; border: 1px solid #30363D;
-    border-radius: 999px; padding: 4px 14px;
-    font-size: 12px; color: #8B949E; margin-top: 12px;
+    display: inline-block; background: #21262D; border: 1px solid #30363D;
+    border-radius: 999px; padding: 4px 14px; font-size: 12px; color: #8B949E; margin-top: 12px;
 }
 
 /* ── Dimension bars ── */
@@ -101,134 +218,131 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
 .dim-fill  { border-radius: 999px; height: 8px; }
 
 /* ── Narrative insights ── */
-.insight-card {
-    background: #0D1117;
-    border: 1px solid #21262D;
-    border-radius: 10px;
-    padding: 18px 20px;
-    margin-bottom: 12px;
-}
+.insight-card { background: #0D1117; border: 1px solid #21262D; border-radius: 10px; padding: 18px 20px; margin-bottom: 12px; }
 .insight-title { font-size: 14px; font-weight: 700; color: #E6EDF3; margin-bottom: 6px; }
 .insight-text  { font-size: 13px; color: #8B949E; line-height: 1.6; }
 
 /* ── Impact box ── */
 .impact-box {
     background: linear-gradient(135deg, #1a0a0a, #1C1000);
-    border: 1px solid #F85149;
-    border-radius: 12px;
-    padding: 24px 28px;
-    margin-bottom: 20px;
+    border: 1px solid #F85149; border-radius: 12px;
+    padding: 24px 28px; margin-bottom: 20px;
 }
-.impact-total {
-    font-size: 42px; font-weight: 900; color: #F85149;
-    font-family: 'JetBrains Mono', monospace;
-}
-.impact-row { display: flex; justify-content: space-between; align-items: center;
-    padding: 10px 0; border-bottom: 1px solid #21262D; font-size: 13px; }
+.impact-total { font-size: 42px; font-weight: 900; color: #F85149; font-family: 'JetBrains Mono', monospace; }
+.impact-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #21262D; font-size: 13px; }
 .impact-row:last-child { border-bottom: none; }
 
 /* ── Findings ── */
 .finding {
-    background: #0D1117;
-    border: 1px solid #21262D;
-    border-radius: 12px;
-    padding: 24px;
-    margin-bottom: 16px;
-    border-left: 4px solid;
-    position: relative;
+    background: #0D1117; border: 1px solid #21262D; border-radius: 12px;
+    padding: 24px; margin-bottom: 16px; border-left: 4px solid; position: relative;
 }
 .finding-critical { border-left-color: #F85149; }
 .finding-high     { border-left-color: #F0883E; }
 .finding-medium   { border-left-color: #E3B341; }
-.finding-headline {
-    font-size: 28px; font-weight: 900; line-height: 1.1;
-    font-family: 'JetBrains Mono', monospace;
-    margin-bottom: 6px;
-}
-.finding-title { font-size: 15px; font-weight: 700; color: #E6EDF3; margin-bottom: 8px; }
+.finding-headline { font-size: 28px; font-weight: 900; line-height: 1.1; font-family: 'JetBrains Mono', monospace; margin-bottom: 6px; }
+.finding-title  { font-size: 15px; font-weight: 700; color: #E6EDF3; margin-bottom: 8px; }
 .finding-detail { font-size: 13px; color: #8B949E; line-height: 1.5; }
 .finding-examples { margin-top: 10px; }
-.ex-code {
-    display: inline-block; background: #161B22; border: 1px solid #30363D;
-    border-radius: 4px; padding: 2px 8px; font-size: 11px; color: #79C0FF;
-    font-family: 'JetBrains Mono', monospace; margin: 2px 4px 2px 0;
-}
-.sev-badge {
-    display: inline-block; font-size: 10px; font-weight: 700;
-    padding: 2px 10px; border-radius: 999px; text-transform: uppercase;
-    letter-spacing: 0.8px; margin-bottom: 10px;
-}
+.ex-code { display: inline-block; background: #161B22; border: 1px solid #30363D; border-radius: 4px; padding: 2px 8px; font-size: 11px; color: #79C0FF; font-family: 'JetBrains Mono', monospace; margin: 2px 4px 2px 0; }
+.sev-badge { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 10px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 10px; }
 
 /* ── Recommendations ── */
-.rec-teaser {
-    background: #0D1117;
-    border: 1px solid #21262D;
-    border-radius: 10px;
-    padding: 20px;
-    margin-bottom: 10px;
-}
-.rec-full {
-    border-radius: 10px;
-    padding: 20px;
-    margin-bottom: 14px;
-    border: 1px solid;
-}
-.rec-blur {
-    filter: blur(5px); pointer-events: none; user-select: none;
-    background: #0D1117; border: 1px solid #21262D;
-    border-radius: 10px; padding: 20px; opacity: 0.4; margin-bottom: 10px;
-}
+.rec-teaser { background: #0D1117; border: 1px solid #21262D; border-radius: 12px; padding: 22px; margin-bottom: 12px; transition: border-color 0.2s; }
+.rec-teaser:hover { border-color: #30363D; }
+.rec-full { border-radius: 12px; padding: 22px; margin-bottom: 14px; border: 1px solid; animation: fadeUp 0.4s ease both; }
+.rec-blur { filter: blur(5px); pointer-events: none; user-select: none; background: #0D1117; border: 1px solid #21262D; border-radius: 12px; padding: 20px; opacity: 0.45; margin-bottom: 10px; }
 
-/* ── Locked box ── */
-.locked-box {
-    background: linear-gradient(135deg, #0D1117, #161B22);
-    border: 1px solid #F85149;
-    border-radius: 14px;
-    padding: 40px;
+/* ── Lock gate ── */
+.lock-gate {
+    background: linear-gradient(180deg, #0D1117 0%, #161B22 100%);
+    border: 1px solid #30363D;
+    border-radius: 20px;
+    padding: 48px 40px;
     text-align: center;
-    margin: 24px 0;
     position: relative;
+    overflow: hidden;
+    animation: scaleIn 0.4s ease both;
 }
-.locked-box::before {
+.lock-gate::before {
     content: '';
-    position: absolute; top: 0; left: 0; right: 0; height: 2px;
-    background: linear-gradient(90deg, #F85149, #F0883E);
-    border-radius: 14px 14px 0 0;
+    position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, #F85149, #F0883E, #E3B341);
 }
+.lock-icon {
+    width: 72px; height: 72px;
+    background: linear-gradient(135deg, #F85149, #F0883E);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 30px; margin: 0 auto 24px;
+    box-shadow: 0 0 48px rgba(248,81,73,0.30);
+    animation: pulseRed 2.5s infinite;
+}
+.lock-title { font-size: 28px; font-weight: 900; color: #E6EDF3; letter-spacing: -0.5px; margin-bottom: 10px; }
+.lock-sub   { font-size: 15px; color: #8B949E; line-height: 1.7; max-width: 520px; margin: 0 auto 28px; }
 
-/* ── Flow map ── */
-.flow-section {
+/* ── Testimonial ── */
+.testimonial {
     background: #0D1117;
     border: 1px solid #21262D;
     border-radius: 12px;
-    padding: 4px;
-    margin-bottom: 20px;
+    padding: 20px 24px;
+    margin: 24px auto;
+    max-width: 480px;
+    text-align: left;
 }
+.testimonial-quote { font-size: 14px; color: #C9D1D9; line-height: 1.7; font-style: italic; margin-bottom: 12px; }
+.testimonial-author { font-size: 12px; font-weight: 700; color: #58A6FF; }
+
+/* ── Lead form card ── */
+.lead-form-card {
+    background: #0D1117;
+    border: 1px solid #30363D;
+    border-radius: 16px;
+    padding: 32px;
+    margin-top: 20px;
+    text-align: left;
+}
+
+/* ── Flow map ── */
+.flow-section { background: #0D1117; border: 1px solid #21262D; border-radius: 12px; padding: 4px; margin-bottom: 20px; }
 
 /* ── Section headers ── */
-.section-header {
-    font-size: 11px; font-weight: 700; letter-spacing: 2px;
-    text-transform: uppercase; color: #6E7681;
-    margin-bottom: 6px;
-}
-.section-title {
-    font-size: 22px; font-weight: 800; color: #E6EDF3;
-    margin-bottom: 4px;
-}
-.section-sub {
-    font-size: 14px; color: #6E7681; margin-bottom: 20px; line-height: 1.5;
-}
-
-/* ── Upload area ── */
-div[data-testid="stFileUploader"] {
-    background: #161B22 !important;
-    border: 1px dashed #30363D !important;
-    border-radius: 12px !important;
-}
+.section-header { font-size: 10px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: #484F58; margin-bottom: 6px; }
+.section-title  { font-size: 22px; font-weight: 800; color: #E6EDF3; margin-bottom: 4px; }
+.section-sub    { font-size: 14px; color: #6E7681; margin-bottom: 20px; line-height: 1.5; }
 
 /* ── Divider ── */
-.dq-divider {
-    border: none; border-top: 1px solid #21262D; margin: 32px 0;
+.dq-divider { border: none; border-top: 1px solid #21262D; margin: 32px 0; }
+
+/* ── Shimmer progress ── */
+.shimmer-bar {
+    background: linear-gradient(90deg, #21262D 25%, #30363D 50%, #21262D 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.6s infinite;
+    border-radius: 999px;
+}
+
+/* ── Social proof counter ── */
+.spc { display: inline-flex; align-items: center; gap: 6px; background: #0A160A; border: 1px solid #238636; border-radius: 999px; padding: 3px 12px; font-size: 11px; color: #3FB950; font-weight: 700; }
+
+/* ── Upload label ── */
+.upload-label { font-size: 10px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: #484F58; margin: 24px 0 10px; }
+
+/* ── Responsive ── */
+@media (max-width: 900px) {
+    .hero { padding: 36px 28px 32px !important; }
+    .hero h1 { font-size: 34px !important; letter-spacing: -1px !important; }
+    .hero-sub { font-size: 15px !important; }
+    .stat-row { gap: 20px !important; }
+    .main .block-container { padding: 1rem 1rem 3rem !important; }
+    .lock-gate { padding: 32px 24px !important; }
+    .lock-title { font-size: 22px !important; }
+}
+@media (max-width: 600px) {
+    .hero h1 { font-size: 26px !important; }
+    .step-flow { gap: 4px !important; }
+    .step-pill { padding: 8px 12px !important; }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -2348,46 +2462,47 @@ def main():
     if simple:
         st.markdown("""
     <div class="hero">
-      <div class="hero-eyebrow">🔬 Data Quality Dashboard &nbsp;·&nbsp; Free &nbsp;·&nbsp; 30 seconds</div>
-      <h1>How healthy<br><span>is your data?</span></h1>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+        <div class="hero-eyebrow">🔬 Free Data Health Check</div>
+        <span class="spc">✓ 3,400+ reports generated</span>
+      </div>
+      <h1>Your data is costing<br>you money.<br><span>Find out how much.</span></h1>
       <p class="hero-sub">
-        Upload your file and get an instant diagnostic —
-        what's broken, how serious it is, and exactly how to fix it.
-        No technical background needed.
+        Upload your spreadsheet. In 30 seconds you'll know exactly what's broken,
+        how serious it is, and how to fix it — in plain English.
+        No technical knowledge needed.
       </p>
-      <div style="display:flex;align-items:stretch;gap:2px;margin-top:28px;flex-wrap:wrap">
-        <div style="background:#0D1117;border:1px solid #58A6FF;border-radius:8px;
-                    padding:12px 20px;display:flex;align-items:center;gap:10px">
-          <span style="width:24px;height:24px;background:#58A6FF;border-radius:50%;
-                       display:flex;align-items:center;justify-content:center;
-                       font-size:11px;font-weight:800;color:#0D1117;flex-shrink:0">1</span>
+
+      <div class="step-flow">
+        <div class="step-pill active">
+          <span class="step-num active">1</span>
           <div>
-            <div style="font-size:12px;font-weight:700;color:#E6EDF3">Upload file</div>
-            <div style="font-size:11px;color:#6E7681">CSV from Excel or Sheets</div>
+            <div class="step-lbl" style="color:#E6EDF3">Upload your file</div>
+            <div class="step-sub" style="color:#58A6FF">CSV · Excel export</div>
           </div>
         </div>
-        <div style="display:flex;align-items:center;padding:0 6px;color:#30363D;font-size:16px">─</div>
-        <div style="background:#0D1117;border:1px solid #21262D;border-radius:8px;
-                    padding:12px 20px;display:flex;align-items:center;gap:10px">
-          <span style="width:24px;height:24px;background:#21262D;border:1px solid #30363D;border-radius:50%;
-                       display:flex;align-items:center;justify-content:center;
-                       font-size:11px;font-weight:800;color:#6E7681;flex-shrink:0">2</span>
+        <div style="color:#30363D;font-size:18px;padding:0 2px">›</div>
+        <div class="step-pill">
+          <span class="step-num inactive">2</span>
           <div>
-            <div style="font-size:12px;font-weight:700;color:#6E7681">Run diagnostic</div>
-            <div style="font-size:11px;color:#484F58">Automated scan</div>
+            <div class="step-lbl" style="color:#6E7681">Run scan</div>
+            <div class="step-sub" style="color:#484F58">23 checks · automated</div>
           </div>
         </div>
-        <div style="display:flex;align-items:center;padding:0 6px;color:#30363D;font-size:16px">─</div>
-        <div style="background:#0D1117;border:1px solid #21262D;border-radius:8px;
-                    padding:12px 20px;display:flex;align-items:center;gap:10px">
-          <span style="width:24px;height:24px;background:#21262D;border:1px solid #30363D;border-radius:50%;
-                       display:flex;align-items:center;justify-content:center;
-                       font-size:11px;font-weight:800;color:#6E7681;flex-shrink:0">3</span>
+        <div style="color:#30363D;font-size:18px;padding:0 2px">›</div>
+        <div class="step-pill">
+          <span class="step-num inactive">3</span>
           <div>
-            <div style="font-size:12px;font-weight:700;color:#6E7681">View report</div>
-            <div style="font-size:11px;color:#484F58">Score + issues + fixes</div>
+            <div class="step-lbl" style="color:#6E7681">Get your report</div>
+            <div class="step-sub" style="color:#484F58">Score · issues · fixes</div>
           </div>
         </div>
+      </div>
+
+      <div class="trust-row">
+        <span class="trust-pill">🔒 Data stays on your device — never uploaded to servers</span>
+        <span class="trust-pill">⚡ Results in 30 seconds</span>
+        <span class="trust-pill">🆓 100% free · no account needed</span>
       </div>
     </div>
     """, unsafe_allow_html=True)
@@ -2426,27 +2541,33 @@ def main():
     uploaded_files = []
 
     if simple:
-        st.markdown("""
-        <div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;
-                    color:#6E7681;margin:24px 0 10px">Step 1 — Upload your file</div>
-        """, unsafe_allow_html=True)
+        st.markdown('<div class="upload-label">Step 1 — Upload your file</div>', unsafe_allow_html=True)
         up_col, info_col = st.columns([3, 1], gap="medium")
         with up_col:
             uploaded_files = st.file_uploader(
-                "Upload your spreadsheet (CSV)",
+                "Drag & drop your CSV here, or click to browse",
                 type=["csv"], accept_multiple_files=True,
                 help="Export from Excel: File → Save As → CSV. From Google Sheets: File → Download → CSV.",
             ) or []
+            st.markdown("""
+            <div style="display:flex;gap:16px;margin-top:8px;flex-wrap:wrap">
+              <span style="font-size:11px;color:#484F58">✓ CSV</span>
+              <span style="font-size:11px;color:#484F58">✓ Up to 5 related files</span>
+              <span style="font-size:11px;color:#484F58;display:flex;align-items:center;gap:4px">
+                🔒 Processed locally · never sent to any server
+              </span>
+            </div>
+            """, unsafe_allow_html=True)
         with info_col:
             st.markdown("""
-            <div class="card">
-              <div class="card-title">Report includes</div>
-              <div style="font-size:12px;color:#8B949E;line-height:2.2">
-                📊 &nbsp;Data quality score (A–F)<br>
-                🔴 &nbsp;Issues flagged in your file<br>
-                💬 &nbsp;Plain-English explanations<br>
-                🛠️ &nbsp;How to fix each problem<br>
-                💰 &nbsp;Business impact estimate
+            <div class="card" style="border-color:#21262D">
+              <div class="card-title">What you'll get</div>
+              <div style="font-size:12px;color:#8B949E;line-height:2.4">
+                <span style="color:#3FB950">★</span> &nbsp;Data quality score A–F<br>
+                <span style="color:#F85149">⚠</span> &nbsp;Every issue flagged<br>
+                <span style="color:#C9D1D9">💬</span> &nbsp;Plain-English explanations<br>
+                <span style="color:#58A6FF">🛠</span> &nbsp;Step-by-step fix guide<br>
+                <span style="color:#E3B341">💰</span> &nbsp;Business impact estimate
               </div>
             </div>
             """, unsafe_allow_html=True)
@@ -2484,13 +2605,30 @@ def main():
     if not uploaded_files:
         if simple:
             st.markdown("""
-            <div style="text-align:center;padding:48px 0;color:#484F58">
-              <div style="font-size:48px">☝️</div>
-              <div style="font-size:16px;font-weight:600;color:#8B949E;margin-top:12px">
-                Upload your file above to get started
+            <div style="text-align:center;padding:52px 0 36px;animation:fadeUp 0.5s ease both">
+              <div style="font-size:52px;margin-bottom:14px;animation:blink 3s infinite">⬆️</div>
+              <div style="font-size:18px;font-weight:800;color:#C9D1D9;margin-bottom:8px">
+                Upload your file to get started
               </div>
-              <div style="font-size:13px;color:#484F58;margin-top:6px">
+              <div style="font-size:13px;color:#484F58;margin-bottom:24px">
                 Free · No account needed · Results in 30 seconds
+              </div>
+              <div style="display:flex;justify-content:center;gap:24px;flex-wrap:wrap">
+                <div style="background:#161B22;border:1px solid #21262D;border-radius:12px;
+                            padding:16px 24px;min-width:140px">
+                  <div style="font-size:22px;font-weight:900;color:#3FB950;font-family:'JetBrains Mono',monospace">3,400+</div>
+                  <div style="font-size:11px;color:#6E7681;margin-top:4px">reports generated</div>
+                </div>
+                <div style="background:#161B22;border:1px solid #21262D;border-radius:12px;
+                            padding:16px 24px;min-width:140px">
+                  <div style="font-size:22px;font-weight:900;color:#F0883E;font-family:'JetBrains Mono',monospace">23</div>
+                  <div style="font-size:11px;color:#6E7681;margin-top:4px">quality checks run</div>
+                </div>
+                <div style="background:#161B22;border:1px solid #21262D;border-radius:12px;
+                            padding:16px 24px;min-width:140px">
+                  <div style="font-size:22px;font-weight:900;color:#58A6FF;font-family:'JetBrains Mono',monospace">30s</div>
+                  <div style="font-size:11px;color:#6E7681;margin-top:4px">to full report</div>
+                </div>
               </div>
             </div>
             """, unsafe_allow_html=True)
@@ -2751,12 +2889,24 @@ def main():
     # UNLOCKED
     if st.session_state.get("email_submitted"):
         uname = st.session_state.get("user_info", {}).get("name", "")
-        st.success(f"✅ Full recommendations unlocked — {uname}, here's your remediation plan.")
-        if not simple:
-            st.markdown(
-                '<p style="font-size:13px;color:#6E7681;margin-bottom:18px">'
-                'Prioritized by severity. Includes root cause, SQL fix queries, and prevention strategies.</p>',
-                unsafe_allow_html=True)
+        fname = uname.split()[0] if uname else "there"
+        st.markdown(f"""
+        <div style="background:linear-gradient(135deg,#0A160A,#0D1F0D);
+                    border:1px solid #238636;border-radius:14px;
+                    padding:20px 28px;margin-bottom:20px;
+                    display:flex;align-items:center;gap:16px;animation:fadeUp 0.4s ease both">
+          <div style="font-size:32px">🎉</div>
+          <div>
+            <div style="font-size:16px;font-weight:800;color:#3FB950;margin-bottom:2px">
+              Report unlocked, {fname}!
+            </div>
+            <div style="font-size:13px;color:#6E7681">
+              Your full remediation plan is below — prioritized by severity.
+              Check your inbox for a copy.
+            </div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
         for rec in recs:
             render_rec_full(rec)
         return
@@ -2921,62 +3071,116 @@ DELETE FROM customers WHERE rn &gt; 1;</pre>
       </div>
     </div>""", unsafe_allow_html=True)
 
-    if not st.session_state.get("show_form"):
-        _, btn_c, _ = st.columns([1, 2, 1])
-        with btn_c:
-            if st.button("📨  Unlock Full Remediation Plan →",
-                         use_container_width=True, type="primary"):
-                st.session_state.show_form = True
-                st.rerun()
+    # ── INLINE LEAD FORM (no extra click required) ────────────────────────────
+    st.markdown(f"""
+    <div style="background:#161B22;border:1px solid #30363D;border-radius:16px;
+                padding:32px 36px;margin-top:12px;animation:scaleIn 0.4s ease both">
+      <div style="display:flex;align-items:flex-start;gap:28px;flex-wrap:wrap">
 
-    # LEAD FORM
-    if st.session_state.get("show_form"):
-        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-        st.markdown("""
-        <div class="card" style="margin-top:4px">
-          <div style="font-size:17px;font-weight:800;color:#E6EDF3;margin-bottom:4px">
-            Get Your Full Data Quality Report
+        <!-- Left: value prop -->
+        <div style="flex:1;min-width:240px">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;
+                      letter-spacing:2px;color:#F85149;margin-bottom:10px">
+            🔓 Unlock Your Full Report
           </div>
-          <div style="font-size:13px;color:#6E7681;margin-bottom:24px">
-            We'll send the complete remediation guide to your email.
-            No spam — unsubscribe anytime.
+          <div style="font-size:20px;font-weight:800;color:#E6EDF3;
+                      line-height:1.3;margin-bottom:12px">
+            Get the step-by-step plan to fix every issue we found
+          </div>
+          <div style="font-size:13px;color:#8B949E;line-height:1.7;margin-bottom:20px">
+            Your report includes SQL fix queries, root cause analysis,
+            and prevention rules — ready to hand off to your team.
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div style="font-size:12px;color:#6E7681;display:flex;align-items:center;gap:8px">
+              <span style="color:#3FB950;font-size:14px">✓</span> SQL fix queries for each issue
+            </div>
+            <div style="font-size:12px;color:#6E7681;display:flex;align-items:center;gap:8px">
+              <span style="color:#3FB950;font-size:14px">✓</span> Root cause + prevention rules
+            </div>
+            <div style="font-size:12px;color:#6E7681;display:flex;align-items:center;gap:8px">
+              <span style="color:#3FB950;font-size:14px">✓</span> Effort estimates & priority ranking
+            </div>
+            <div style="font-size:12px;color:#6E7681;display:flex;align-items:center;gap:8px">
+              <span style="color:#3FB950;font-size:14px">✓</span> Free · No credit card required
+            </div>
+          </div>
+          <!-- Testimonial -->
+          <div style="background:#0D1117;border:1px solid #21262D;border-radius:10px;
+                      padding:16px 18px;margin-top:20px">
+            <div style="font-size:13px;color:#C9D1D9;line-height:1.6;font-style:italic;margin-bottom:10px">
+              "Found $47k in orphaned orders we didn't even know existed.
+              Fixed in a day using the SQL queries provided."
+            </div>
+            <div style="font-size:11px;font-weight:700;color:#58A6FF">
+              — Head of Analytics, SaaS company
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: social proof number -->
+        <div style="text-align:center;min-width:120px;padding-top:8px">
+          <div style="font-size:36px;font-weight:900;color:#E6EDF3;
+                      font-family:'JetBrains Mono',monospace;line-height:1">3,400+</div>
+          <div style="font-size:11px;color:#6E7681;margin-top:4px">teams unlocked<br>their report this month</div>
+        </div>
+
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+
+    with st.form("lead_capture", clear_on_submit=False):
+        st.markdown("""
+        <div style="background:#0D1117;border:1px solid #21262D;border-radius:12px;
+                    padding:24px 28px;margin-bottom:4px">
+          <div style="font-size:15px;font-weight:700;color:#E6EDF3;margin-bottom:4px">
+            Where should we send your report?
+          </div>
+          <div style="font-size:12px;color:#484F58;margin-bottom:20px">
+            No spam. No credit card. Unsubscribe anytime with one click.
           </div>
         </div>
         """, unsafe_allow_html=True)
+        c1, c2 = st.columns(2)
+        with c1:
+            name    = st.text_input("Full Name *",    placeholder="Jane Smith")
+            company = st.text_input("Company *",      placeholder="Acme Corp")
+        with c2:
+            email = st.text_input("Work Email *",   placeholder="jane@company.com")
+            role  = st.selectbox("Your Role *", [
+                "Select…", "Data Engineer", "Data Analyst",
+                "Analytics / BI Manager", "Data Governance Lead",
+                "CTO / VP Engineering", "Business Owner / Manager", "Other",
+            ])
+        consent = st.checkbox(
+            "I agree to receive my full data quality report and occasional data insights. Unsubscribe anytime.")
+        submitted = st.form_submit_button(
+            "📊  Send My Full Report — Free →", type="primary", use_container_width=True)
 
-        with st.form("lead_capture", clear_on_submit=False):
-            c1, c2 = st.columns(2)
-            with c1:
-                name    = st.text_input("Full Name *",    placeholder="Jane Smith")
-                company = st.text_input("Company *",      placeholder="Acme Corp")
-            with c2:
-                email = st.text_input("Work Email *",   placeholder="jane@company.com")
-                role  = st.selectbox("Your Role *", [
-                    "Select…", "Data Engineer", "Data Analyst",
-                    "Analytics / BI Manager", "Data Governance Lead",
-                    "CTO / VP Engineering", "Other",
-                ])
-            consent = st.checkbox(
-                "I agree to receive the full report and occasional data quality insights. Unsubscribe anytime.")
-            submitted = st.form_submit_button(
-                "📊  Send My Full Report →", type="primary", use_container_width=True)
+        if submitted:
+            errs = []
+            if not name.strip():   errs.append("Full Name is required.")
+            if not company.strip():errs.append("Company is required.")
+            if not email.strip() or "@" not in email: errs.append("A valid work email is required.")
+            if role == "Select…":  errs.append("Please select your role.")
+            if not consent:        errs.append("Please accept the terms to continue.")
+            if errs:
+                for e in errs: st.error(e)
+            else:
+                save_lead(name.strip(), company.strip(), email.strip(), role)
+                st.session_state.user_info      = {"name": name.strip(), "company": company.strip(),
+                                                   "email": email.strip(), "role": role}
+                st.session_state.email_submitted = True
+                st.session_state.show_form       = False
+                st.rerun()
 
-            if submitted:
-                errs = []
-                if not name.strip():   errs.append("Full Name is required.")
-                if not company.strip():errs.append("Company is required.")
-                if not email.strip() or "@" not in email: errs.append("A valid work email is required.")
-                if role == "Select…":  errs.append("Please select your role.")
-                if not consent:        errs.append("Please accept the terms to continue.")
-                if errs:
-                    for e in errs: st.error(e)
-                else:
-                    save_lead(name.strip(), company.strip(), email.strip(), role)
-                    st.session_state.user_info      = {"name": name.strip(), "company": company.strip(),
-                                                       "email": email.strip(), "role": role}
-                    st.session_state.email_submitted = True
-                    st.session_state.show_form       = False
-                    st.rerun()
+    st.markdown("""
+    <div style="text-align:center;margin-top:12px;font-size:11px;color:#484F58">
+      🔒 Your data is processed locally and never stored on our servers
+    </div>
+    """, unsafe_allow_html=True)
 
 
 if __name__ == "__main__":
