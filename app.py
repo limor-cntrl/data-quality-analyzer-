@@ -2036,59 +2036,296 @@ def _make_dim_bar_chart(scores: dict) -> go.Figure:
     return fig
 
 
-def _make_donut_chart(n_critical: int, n_high: int, n_medium: int) -> go.Figure:
-    """Small Plotly donut showing issue severity distribution."""
-    total = n_critical + n_high + n_medium
-    if total == 0:
-        labels = ["Clean"]
-        vals   = [1]
-        clrs   = ["#238636"]
-    else:
-        labels = ["Critical", "High", "Medium"]
-        vals   = [n_critical, n_high, n_medium]
-        clrs   = ["#F85149", "#F0883E", "#E3B341"]
-        labels = [l for l, v in zip(labels, vals) if v > 0]
-        clrs   = [c for c, v in zip(clrs, vals)   if v > 0]
-        vals   = [v for v in vals if v > 0]
+def _benchmark_html(score: float, color: str) -> str:
+    """Horizontal benchmark track — user score vs industry avg (58) and top 20% (85)."""
+    industry_avg = 58
+    top_20_pct   = 85
+    user_pct     = min(max(score, 0), 100)
+    delta_avg    = round(score - industry_avg, 1)
+    delta_sign   = "+" if delta_avg >= 0 else ""
+    delta_color  = "#3FB950" if delta_avg >= 0 else "#F85149"
+    return f"""
+    <div style="background:#161B22;border:1px solid #21262D;border-radius:10px;
+                padding:14px 16px;margin-top:10px">
+      <div style="font-size:9px;font-weight:700;text-transform:uppercase;
+                  letter-spacing:1.5px;color:#484F58;margin-bottom:12px">
+        vs. Industry Benchmark
+      </div>
+      <div style="position:relative;height:6px;background:#21262D;
+                  border-radius:999px;margin-bottom:20px">
+        <div style="position:absolute;left:{industry_avg}%;top:-4px;
+                    width:2px;height:14px;background:#6E7681;border-radius:1px"></div>
+        <div style="position:absolute;left:{top_20_pct}%;top:-4px;
+                    width:2px;height:14px;background:#3FB950;border-radius:1px"></div>
+        <div style="position:absolute;left:0;width:{user_pct:.0f}%;height:6px;
+                    background:linear-gradient(90deg,{color}44,{color});
+                    border-radius:999px"></div>
+        <div style="position:absolute;left:calc({user_pct:.0f}% - 7px);top:-5px;
+                    width:14px;height:14px;background:{color};
+                    border:2px solid #0D1117;border-radius:50%;
+                    box-shadow:0 0 8px {color}88"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:10px">
+        <div>
+          <div style="color:{color};font-weight:800;
+                      font-family:'JetBrains Mono',monospace">{score:.0f}</div>
+          <div style="color:#6E7681;margin-top:2px">Your score</div>
+          <div style="color:{delta_color};font-size:9px;margin-top:1px;font-weight:700">
+            {delta_sign}{delta_avg} vs avg
+          </div>
+        </div>
+        <div style="text-align:center">
+          <div style="color:#8B949E;font-weight:700;
+                      font-family:'JetBrains Mono',monospace">{industry_avg}</div>
+          <div style="color:#484F58;margin-top:2px">Industry avg</div>
+        </div>
+        <div style="text-align:right">
+          <div style="color:#3FB950;font-weight:700;
+                      font-family:'JetBrains Mono',monospace">{top_20_pct}</div>
+          <div style="color:#484F58;margin-top:2px">Top 20%</div>
+        </div>
+      </div>
+    </div>"""
 
-    fig = go.Figure(go.Pie(
-        labels=labels, values=vals,
-        hole=0.65,
-        marker=dict(colors=clrs, line=dict(color="#0D1117", width=2)),
-        textinfo="none",
-        hovertemplate="%{label}: %{value}<extra></extra>",
-    ))
-    center_text = f"{total}" if total > 0 else "✓"
-    center_sub  = "issues" if total > 0 else "clean"
-    fig.add_annotation(
-        text=f"<b>{center_text}</b><br><span style='font-size:9px'>{center_sub}</span>",
-        x=0.5, y=0.5, showarrow=False,
-        font=dict(size=18, color="#E6EDF3", family="JetBrains Mono, monospace"),
-        align="center",
-    )
-    fig.update_layout(
-        paper_bgcolor="#0D1117", plot_bgcolor="#0D1117",
-        margin=dict(l=0, r=0, t=4, b=4),
-        height=180,
-        showlegend=True,
-        legend=dict(
-            orientation="v", x=1.05, y=0.5,
-            font=dict(size=10, color="#8B949E"),
-            bgcolor="rgba(0,0,0,0)",
-        ),
-    )
-    return fig
+
+def _column_health_html(dfs: dict) -> str:
+    """Per-column completeness bars — compact list per file."""
+    if not dfs:
+        return ""
+    parts = []
+    for fname, df in dfs.items():
+        cols = list(df.columns)[:12]
+        rows_html = ""
+        for col in cols:
+            fill = df[col].notna().mean() * 100
+            c    = "#3FB950" if fill >= 95 else ("#E3B341" if fill >= 80 else "#F85149")
+            short_col = col if len(col) <= 20 else col[:18] + "…"
+            rows_html += f"""
+            <div style="display:grid;grid-template-columns:150px 1fr 38px;
+                        align-items:center;gap:10px;margin-bottom:7px">
+              <div style="font-size:11px;color:#C9D1D9;overflow:hidden;
+                          text-overflow:ellipsis;white-space:nowrap"
+                   title="{col}">{short_col}</div>
+              <div style="background:#21262D;border-radius:999px;height:5px;overflow:hidden">
+                <div style="width:{fill:.0f}%;background:{c};height:5px;
+                            border-radius:999px"></div>
+              </div>
+              <div style="font-size:11px;font-weight:700;color:{c};
+                          font-family:'JetBrains Mono',monospace;text-align:right">
+                {fill:.0f}%
+              </div>
+            </div>"""
+        hidden = len(df.columns) - len(cols)
+        extra = (f'<div style="font-size:10px;color:#484F58;margin-top:4px">'
+                 f'+{hidden} more columns not shown</div>') if hidden else ""
+        parts.append(f"""
+        <div style="margin-bottom:20px">
+          <div style="font-size:11px;font-weight:700;color:#79C0FF;margin-bottom:10px">
+            📄 {fname}
+            <span style="font-size:10px;color:#484F58;font-weight:400;margin-left:6px">
+              {len(df):,} rows · {len(df.columns)} columns
+            </span>
+          </div>
+          {rows_html}
+          {extra}
+        </div>""")
+    return "\n".join(parts)
+
+
+def _df_preview_html(dfs: dict, max_rows: int = 5) -> str:
+    """First N rows per file — null cells highlighted orange."""
+    if not dfs:
+        return ""
+    parts = []
+    for fname, df in dfs.items():
+        cols   = list(df.columns)[:8]
+        subset = df[cols].head(max_rows)
+        th = "".join(
+            f'<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;'
+            f'color:#484F58;text-transform:uppercase;letter-spacing:.4px;'
+            f'border-bottom:1px solid #30363D;white-space:nowrap;background:#161B22">{c}</th>'
+            for c in cols
+        )
+        tr_html = ""
+        for _, row in subset.iterrows():
+            cells = ""
+            for c in cols:
+                val     = row[c]
+                is_null = pd.isna(val)
+                bg  = "background:#3d1200;border-left:2px solid #F0883E44;" if is_null else ""
+                txt = ('<span style="color:#F0883E;font-style:italic;font-size:10px">null</span>'
+                       if is_null else
+                       f'<span style="color:#C9D1D9">{str(val)[:24]}</span>')
+                cells += (f'<td style="padding:6px 10px;{bg}border-bottom:1px solid #21262D;'
+                          f'font-size:11px;font-family:\'JetBrains Mono\',monospace;'
+                          f'white-space:nowrap">{txt}</td>')
+            tr_html += f'<tr>{cells}</tr>'
+
+        null_total = int(subset.isna().sum().sum())
+        null_note  = (f'<span style="color:#F0883E">■</span> {null_total} null cells in preview'
+                      if null_total else
+                      f'<span style="color:#3FB950">✓</span> No nulls in first {max_rows} rows')
+        hidden_c  = len(df.columns) - len(cols)
+        col_note  = f" · +{hidden_c} more columns" if hidden_c else ""
+        parts.append(f"""
+        <div style="margin-bottom:20px">
+          <div style="display:flex;justify-content:space-between;align-items:center;
+                      margin-bottom:8px">
+            <span style="font-size:11px;font-weight:700;color:#79C0FF">📄 {fname}</span>
+            <span style="font-size:10px;color:#484F58">{null_note}{col_note}</span>
+          </div>
+          <div style="overflow-x:auto;border:1px solid #30363D;border-radius:8px">
+            <table style="width:100%;border-collapse:collapse;min-width:300px">
+              <thead><tr>{th}</tr></thead>
+              <tbody>{tr_html}</tbody>
+            </table>
+          </div>
+        </div>""")
+    return "\n".join(parts)
+
+
+def _quick_win_html(R: dict) -> str:
+    """Top fix with estimated score improvement and grade upgrade indicator."""
+    recs = R.get("recs", [])
+    if not recs:
+        return """
+        <div style="background:#0A160A;border:1px solid #238636;border-radius:10px;
+                    padding:20px;text-align:center">
+          <div style="font-size:28px;margin-bottom:8px">🎉</div>
+          <div style="font-size:13px;font-weight:700;color:#3FB950">No critical issues!</div>
+          <div style="font-size:11px;color:#6E7681;margin-top:4px">Your data is in great shape.</div>
+        </div>"""
+    top   = recs[0]
+    score = R["score_data"]["scores"]["overall"]
+    grade, gc   = overall_grade(score)
+    delta_map   = {"critical": 12, "high": 7, "medium": 3}
+    delta       = delta_map.get(top["severity"], 5)
+    new_score   = min(score + delta, 92)
+    new_grade, ngc = overall_grade(new_score)
+    grade_up    = grade != new_grade
+    upgrade_html = ""
+    if grade_up:
+        upgrade_html = f"""
+        <div style="display:flex;align-items:center;gap:6px;margin-top:12px;flex-wrap:wrap">
+          <span style="font-size:11px;color:#6E7681">Grade upgrade:</span>
+          <span style="font-size:18px;font-weight:900;color:{gc}">{grade}</span>
+          <span style="font-size:14px;color:#484F58">→</span>
+          <span style="font-size:18px;font-weight:900;color:{ngc}">{new_grade}</span>
+          <span style="background:#0A160A;border:1px solid #238636;border-radius:999px;
+                       font-size:10px;color:#3FB950;padding:2px 10px;font-weight:700">
+            ↑ one level up!
+          </span>
+        </div>"""
+    sev_color = {"critical": "#F85149", "high": "#F0883E", "medium": "#E3B341"}.get(
+        top["severity"], "#E3B341")
+    return f"""
+    <div style="background:#0D1117;border:1px solid #30363D;
+                border-top:3px solid #3FB950;border-radius:10px;padding:18px 20px">
+      <div style="font-size:9px;font-weight:700;text-transform:uppercase;
+                  letter-spacing:1.5px;color:#3FB950;margin-bottom:10px">
+        ⚡ Quick Win — Fix This First
+      </div>
+      <div style="font-size:13px;font-weight:700;color:#E6EDF3;
+                  margin-bottom:6px;line-height:1.5">
+        {top['title']}
+      </div>
+      <div style="font-size:11px;color:#8B949E;margin-bottom:12px;line-height:1.6">
+        {top['teaser_metric']}
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <div style="background:#0A160A;border:1px solid #238636;
+                    border-radius:6px;padding:5px 12px;font-size:11px">
+          <span style="color:#484F58">Score impact:</span>
+          <span style="color:#3FB950;font-weight:800;
+                       font-family:'JetBrains Mono',monospace;margin-left:4px">+{delta} pts</span>
+        </div>
+        <div style="background:{sev_color}18;border:1px solid {sev_color}44;
+                    border-radius:6px;padding:5px 12px;font-size:10px;
+                    color:{sev_color};font-weight:700;text-transform:uppercase;
+                    letter-spacing:.5px">
+          {top['severity']}
+        </div>
+      </div>
+      {upgrade_html}
+    </div>"""
+
+
+def _generate_it_report(R: dict) -> str:
+    """Plain-text IT handoff report — downloadable summary."""
+    from datetime import datetime as _dt
+    scores   = R["score_data"]["scores"]
+    details  = R["score_data"]["details"]
+    overall  = scores["overall"]
+    grade, _ = overall_grade(overall)
+    file_names = ", ".join(R["dfs"].keys())
+    lines = [
+        "=" * 60,
+        "DATA QUALITY DIAGNOSTIC REPORT",
+        f"Generated : {_dt.now().strftime('%Y-%m-%d %H:%M')}",
+        f"Files     : {file_names}",
+        "=" * 60, "",
+        f"OVERALL SCORE : {overall}/100  (Grade {grade})",
+        f"Benchmark     : {details.get('benchmark', '')}",
+        f"Status        : {details.get('urgency', '')}",
+        "", "DIMENSION SCORES", "-" * 40,
+    ]
+    dim_names = {
+        "completeness": "Data Completeness",
+        "uniqueness":   "No Duplicates",
+        "validity":     "Data Validity",
+        "consistency":  "File Consistency",
+        "timeliness":   "Data Freshness",
+    }
+    for k, name in dim_names.items():
+        v = scores.get(k)
+        if v is not None:
+            lbl, _ = score_label(v)
+            lines.append(f"  {name:<25} {v:>5.1f}/100  ({lbl})")
+    lines += ["", "ISSUES FOUND", "-" * 40]
+    for f in R["orphans"].get("findings", []):
+        lines.append(
+            f"  [UNMATCHED RECORDS] {f['orphan_count']:,} rows in "
+            f"{f['direction']} have no matching entry"
+        )
+    for f in R["dupes"].get("findings", []):
+        lines.append(
+            f"  [DUPLICATES] {f['duplicate_count']} duplicate {f['type']} "
+            f"entities in {f['file']}"
+        )
+    for f in R["gaps"].get("findings", []):
+        lines.append(
+            f"  [PROCESS GAP] {f['pct_of_upstream']}% of records stall "
+            f"between {f['stage_from']} and {f['stage_to']}"
+        )
+    if not any([R["orphans"].get("findings"),
+                R["dupes"].get("findings"),
+                R["gaps"].get("findings")]):
+        lines.append("  No data integrity issues detected.")
+    lines += ["", "RECOMMENDED FIXES", "-" * 40]
+    for i, rec in enumerate(R.get("recs", []), 1):
+        lines.append(f"  {i}. [{rec['severity'].upper()}] {rec['title']}")
+        lines.append(f"     Impact     : {rec['teaser_metric']}")
+        lines.append(f"     Effort     : {rec.get('effort', 'Unknown')}")
+        lines.append(f"     Prevention : {rec.get('prevention', '')}")
+        lines.append("")
+    lines += [
+        "=" * 60,
+        "Generated by Data Quality Diagnostic Tool",
+        "Share this report with your data / IT team for remediation.",
+        "=" * 60,
+    ]
+    return "\n".join(lines)
 
 
 def render_simple_dashboard(R: dict):
-    """Premium BI dashboard — Plotly gauge + dim bars + donut + issue cards."""
+    """Premium BI dashboard: gauge + dim bars + issue rates + benchmark
+       + issue cards + quick win + column health + data preview."""
     scores  = R["score_data"]["scores"]
     details = R["score_data"]["details"]
     overall = scores["overall"]
     grade, gc = overall_grade(overall)
     lbl, _    = score_label(overall)
     bench     = details.get("benchmark", "")
-    urgency   = details.get("urgency", "")
 
     n_orphans  = sum(f["orphan_count"]    for f in R["orphans"].get("findings", []))
     n_dupes    = sum(f["duplicate_count"] for f in R["dupes"].get("findings", []))
@@ -2098,58 +2335,27 @@ def render_simple_dashboard(R: dict):
 
     # ── Severity badge counts ──────────────────────────────────────────────────
     n_critical = (
-        sum(1 for f in R["orphans"].get("findings",[]) if f["pct_of_source"] > 25) +
-        sum(1 for f in R["dupes"].get("findings",[])   if f["duplicate_count"] > 10)
+        sum(1 for f in R["orphans"].get("findings", []) if f["pct_of_source"] > 25) +
+        sum(1 for f in R["dupes"].get("findings", [])   if f["duplicate_count"] > 10)
     )
-    n_high   = sum(1 for f in R["orphans"].get("findings",[]) if 8 < f["pct_of_source"] <= 25)
-    n_medium = sum(1 for f in R["gaps"].get("findings",[]))
+    n_high   = sum(1 for f in R["orphans"].get("findings", []) if 8 < f["pct_of_source"] <= 25)
+    n_medium = sum(1 for f in R["gaps"].get("findings", []))
 
     badge_html = ""
     if n_critical:
-        badge_html += f'<span style="background:#F85149;color:#fff;font-size:11px;font-weight:700;padding:4px 12px;border-radius:999px;margin-left:8px">{n_critical} Critical</span>'
+        badge_html += (f'<span style="background:#F85149;color:#fff;font-size:11px;font-weight:700;'
+                       f'padding:4px 12px;border-radius:999px;margin-left:8px">{n_critical} Critical</span>')
     if n_high:
-        badge_html += f'<span style="background:#F0883E;color:#0D1117;font-size:11px;font-weight:700;padding:4px 12px;border-radius:999px;margin-left:8px">{n_high} High</span>'
+        badge_html += (f'<span style="background:#F0883E;color:#0D1117;font-size:11px;font-weight:700;'
+                       f'padding:4px 12px;border-radius:999px;margin-left:8px">{n_high} High</span>')
     if n_medium:
-        badge_html += f'<span style="background:#E3B341;color:#0D1117;font-size:11px;font-weight:700;padding:4px 12px;border-radius:999px;margin-left:8px">{n_medium} Medium</span>'
+        badge_html += (f'<span style="background:#E3B341;color:#0D1117;font-size:11px;font-weight:700;'
+                       f'padding:4px 12px;border-radius:999px;margin-left:8px">{n_medium} Medium</span>')
     if not badge_html:
-        badge_html = '<span style="background:#238636;color:#fff;font-size:11px;font-weight:700;padding:4px 12px;border-radius:999px;margin-left:8px">✓ Clean</span>'
+        badge_html = ('<span style="background:#238636;color:#fff;font-size:11px;font-weight:700;'
+                      'padding:4px 12px;border-radius:999px;margin-left:8px">✓ Clean</span>')
 
-    # ── Dimension bars HTML ────────────────────────────────────────────────────
-    dim_html = ""
-    for key, _, _ in DIMS:
-        plain_name, plain_q = _DIM_PLAIN.get(key, (key.title(), ""))
-        val = scores.get(key)
-        if val is None:
-            dim_html += f"""
-            <div style="margin-bottom:14px">
-              <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
-                <div>
-                  <span style="font-size:12px;font-weight:700;color:#6E7681">{plain_name}</span>
-                  <div style="font-size:10px;color:#484F58">{plain_q}</div>
-                </div>
-                <span style="font-size:12px;font-weight:700;color:#484F58;font-family:'JetBrains Mono',monospace;margin-top:2px">N/A</span>
-              </div>
-              <div style="background:#21262D;border-radius:999px;height:7px"></div>
-            </div>"""
-            continue
-        c  = score_color(val)
-        ld, _ = score_label(val)
-        dim_html += f"""
-        <div style="margin-bottom:14px">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
-            <div>
-              <span style="font-size:12px;font-weight:700;color:#C9D1D9">{plain_name}</span>
-              <div style="font-size:10px;color:#484F58;margin-top:1px">{plain_q}</div>
-            </div>
-            <span style="font-size:13px;font-weight:800;color:{c};font-family:'JetBrains Mono',monospace;margin-top:2px">{val:.0f}</span>
-          </div>
-          <div style="background:#21262D;border-radius:999px;height:7px;overflow:hidden">
-            <div style="width:{val}%;background:linear-gradient(90deg,{c}88,{c});height:7px;border-radius:999px"></div>
-          </div>
-          <div style="font-size:10px;color:#484F58;margin-top:2px">{ld}</div>
-        </div>"""
-
-    # ── Issue cards HTML — plain business language ────────────────────────────
+    # ── Issue cards ────────────────────────────────────────────────────────────
     def _issue_card(color, sev_label, icon, headline, body, impact_line):
         return f"""
         <div style="background:#0D1117;border:1px solid #30363D;border-left:4px solid {color};
@@ -2184,8 +2390,8 @@ def render_simple_dashboard(R: dict):
         issue_html += _issue_card(
             dc, sev, "👥", "Duplicate Records",
             f"<em style='color:#79C0FF'>{f['file']}</em> contains "
-            f"<strong style='color:#E6EDF3'>{f['duplicate_count']} duplicate {f['type']}</strong> entries "
-            f"— the same real-world entity appears multiple times.",
+            f"<strong style='color:#E6EDF3'>{f['duplicate_count']} duplicate {f['type']}</strong> "
+            f"entries — the same real-world entity appears multiple times.",
             "Your totals, counts, and averages are inflated by these duplicates."
         )
     for f in R["gaps"].get("findings", [])[:1]:
@@ -2203,56 +2409,64 @@ def render_simple_dashboard(R: dict):
         <div style="background:#0A160A;border:1px solid #238636;border-radius:10px;
                     padding:20px;text-align:center">
           <div style="font-size:28px;margin-bottom:8px">✅</div>
-          <div style="font-size:14px;font-weight:700;color:#3FB950">No data integrity issues found</div>
-          <div style="font-size:12px;color:#6E7681;margin-top:4px">Your records match correctly across all files.</div>
+          <div style="font-size:14px;font-weight:700;color:#3FB950">
+            No data integrity issues found
+          </div>
+          <div style="font-size:12px;color:#6E7681;margin-top:4px">
+            Your records match correctly across all files.
+          </div>
         </div>"""
 
-    # ── Impact block ───────────────────────────────────────────────────────────
+    # ── Issue rate stats (% of rows) ─────────────────────────────────────────
+    orphan_pct = round(n_orphans / rows_total * 100, 1) if rows_total else 0
+    dupe_pct   = round(n_dupes   / rows_total * 100, 1) if rows_total else 0
+    gap_pct    = round(n_gaps    / rows_total * 100, 1) if rows_total else 0
+
+    def _rate_card(label, pct, count, color):
+        bar_w = min(pct, 100)
+        return f"""
+        <div class="dq-card" style="margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;
+                      align-items:flex-start;margin-bottom:6px">
+            <div style="font-size:11px;color:#8B949E;font-weight:600">{label}</div>
+            <div style="font-size:18px;font-weight:900;color:{color};
+                        font-family:'JetBrains Mono',monospace">{pct}%</div>
+          </div>
+          <div style="background:#21262D;border-radius:999px;height:4px;
+                      overflow:hidden;margin-bottom:4px">
+            <div style="width:{bar_w}%;background:{color};height:4px;
+                        border-radius:999px"></div>
+          </div>
+          <div style="font-size:10px;color:#484F58">{count:,} rows affected</div>
+        </div>"""
+
+    orphan_c = "#F85149" if orphan_pct > 5 else ("#E3B341" if orphan_pct > 0 else "#3FB950")
+    dupe_c   = "#F85149" if dupe_pct   > 5 else ("#E3B341" if dupe_pct   > 0 else "#3FB950")
+    gap_c    = "#F85149" if gap_pct    > 20 else ("#E3B341" if gap_pct   > 0 else "#3FB950")
+
     impact = R.get("impact", {})
     if impact.get("has_monetary") and impact.get("total"):
-        impact_html = f"""
-        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;
-                    color:#484F58;margin-bottom:8px">Estimated Revenue at Risk</div>
-        <div style="font-size:44px;font-weight:900;color:#F85149;
-                    font-family:'JetBrains Mono',monospace;line-height:1">
-          ~${impact['total']:,.0f}
-        </div>
-        <div style="font-size:11px;color:#6E7681;margin-top:6px">
-          based on avg transaction value ${impact['avg_value']:,.0f}
-        </div>"""
+        at_risk_big   = f"~${impact['total']:,.0f}"
+        at_risk_sub   = f"est. revenue at risk · avg txn ${impact['avg_value']:,.0f}"
+        at_risk_color = "#F85149"
     else:
-        at_risk = n_orphans + n_dupes + n_gaps
-        impact_html = f"""
-        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;
-                    color:#484F58;margin-bottom:8px">Records at Risk</div>
-        <div style="font-size:44px;font-weight:900;color:#F0883E;
-                    font-family:'JetBrains Mono',monospace;line-height:1">
-          {at_risk:,}
-        </div>
-        <div style="font-size:11px;color:#6E7681;margin-top:6px">rows with confirmed quality issues</div>"""
+        at_risk       = n_orphans + n_dupes + n_gaps
+        at_risk_pct   = round(at_risk / rows_total * 100, 1) if rows_total else 0
+        at_risk_big   = f"{at_risk:,}"
+        at_risk_sub   = f"rows with confirmed issues ({at_risk_pct}% of total)"
+        at_risk_color = "#F0883E"
 
     n_fixes          = len(R["recs"])
     n_critical_fixes = sum(1 for r in R["recs"] if r["severity"] == "critical")
     today            = datetime.now().strftime("%b %d, %Y")
-    orphan_c = "#F85149" if n_orphans > 0 else "#3FB950"
-    dup_c    = "#F85149" if n_dupes   > 0 else "#3FB950"
-    gap_c    = "#E3B341" if n_gaps    > 0 else "#3FB950"
 
     # ── Dashboard header ──────────────────────────────────────────────────────
     st.markdown(f"""
     <style>
-    @keyframes scoreIn {{
-      from {{ opacity:0; transform:translateY(-6px); }}
-      to   {{ opacity:1; transform:translateY(0); }}
-    }}
     .dq-dash-hdr {{
-      background:#161B22;
-      border:1px solid #30363D;
-      border-radius:16px 16px 0 0;
-      padding:16px 28px;
-      position:relative; overflow:hidden;
-      display:flex; align-items:center; justify-content:space-between;
-      margin-bottom:1px;
+      background:#161B22;border:1px solid #30363D;border-radius:16px 16px 0 0;
+      padding:16px 28px;position:relative;overflow:hidden;
+      display:flex;align-items:center;justify-content:space-between;margin-bottom:1px;
     }}
     .dq-dash-hdr::before {{
       content:'';position:absolute;top:0;left:0;right:0;height:3px;
@@ -2263,16 +2477,7 @@ def render_simple_dashboard(R: dict):
       letter-spacing:1.8px;color:#484F58;margin-bottom:12px;
     }}
     .dq-card {{
-      background:#161B22;border:1px solid #21262D;
-      border-radius:10px;padding:16px;
-    }}
-    .dq-stat-num {{
-      font-size:26px;font-weight:900;line-height:1;
-      font-family:'JetBrains Mono',monospace;
-    }}
-    .dq-stat-lbl {{
-      font-size:9px;color:#6E7681;margin-top:4px;
-      font-weight:600;text-transform:uppercase;letter-spacing:.5px;
+      background:#161B22;border:1px solid #21262D;border-radius:10px;padding:14px;
     }}
     </style>
     <div class="dq-dash-hdr">
@@ -2290,7 +2495,7 @@ def render_simple_dashboard(R: dict):
     </div>
     """, unsafe_allow_html=True)
 
-    # ── Row 1: Gauge | Dimension bars | Stats + Impact ────────────────────────
+    # ── Row 1: Gauge | Dimension bars | Issue rates + benchmark ──────────────
     col_gauge, col_dims, col_stats = st.columns([1, 1.4, 1], gap="small")
 
     with col_gauge:
@@ -2353,94 +2558,105 @@ def render_simple_dashboard(R: dict):
         """, unsafe_allow_html=True)
 
     with col_stats:
-        # Donut + 4 stat tiles + impact
-        impact = R.get("impact", {})
-        if impact.get("has_monetary") and impact.get("total"):
-            at_risk_big   = f"~${impact['total']:,.0f}"
-            at_risk_sub   = f"avg txn ${impact['avg_value']:,.0f}"
-            at_risk_color = "#F85149"
-        else:
-            at_risk       = n_orphans + n_dupes + n_gaps
-            at_risk_big   = f"{at_risk:,}"
-            at_risk_sub   = "rows with issues"
-            at_risk_color = "#F0883E"
-
         st.markdown(f"""
         <div style="background:#0D1117;border:1px solid #30363D;border-top:none;
                     border-left:none;padding:20px 16px 16px">
-          <div class="dq-panel-hdr">Issue Summary</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
-            <div class="dq-card" style="text-align:center">
-              <div class="dq-stat-num" style="color:{orphan_c}">{n_orphans:,}</div>
-              <div class="dq-stat-lbl">Orphans</div>
-            </div>
-            <div class="dq-card" style="text-align:center">
-              <div class="dq-stat-num" style="color:{dup_c}">{n_dupes}</div>
-              <div class="dq-stat-lbl">Duplicates</div>
-            </div>
-            <div class="dq-card" style="text-align:center">
-              <div class="dq-stat-num" style="color:{gap_c}">{n_gaps:,}</div>
-              <div class="dq-stat-lbl">Gaps</div>
-            </div>
-            <div class="dq-card" style="text-align:center">
-              <div class="dq-stat-num" style="color:#58A6FF">{rows_total:,}</div>
-              <div class="dq-stat-lbl">Rows</div>
-            </div>
-          </div>
-          <div class="dq-card">
+          <div class="dq-panel-hdr">Rows Affected by Issue Type</div>
+          {_rate_card("Unmatched Records", orphan_pct, n_orphans, orphan_c)}
+          {_rate_card("Duplicate Entries",  dupe_pct,   n_dupes,   dupe_c)}
+          {_rate_card("Incomplete Records",  gap_pct,    n_gaps,    gap_c)}
+          <div class="dq-card" style="margin-top:4px">
             <div style="font-size:9px;font-weight:700;text-transform:uppercase;
-                        letter-spacing:1px;color:#484F58;margin-bottom:6px">At Risk</div>
-            <div style="font-size:32px;font-weight:900;color:{at_risk_color};
+                        letter-spacing:1px;color:#484F58;margin-bottom:6px">Total at Risk</div>
+            <div style="font-size:28px;font-weight:900;color:{at_risk_color};
                         font-family:'JetBrains Mono',monospace;line-height:1">
               {at_risk_big}
             </div>
             <div style="font-size:10px;color:#6E7681;margin-top:5px">{at_risk_sub}</div>
           </div>
+          {_benchmark_html(overall, gc)}
         </div>
         """, unsafe_allow_html=True)
 
-    # ── Donut row (full width, compact) ───────────────────────────────────────
-    col_donut, col_issuelabel = st.columns([1, 2.4], gap="small")
-    with col_donut:
-        st.markdown("""
-        <div style="background:#0D1117;border:1px solid #30363D;border-top:none;
-                    border-right:none;padding:16px 16px 4px">
-          <div class="dq-panel-hdr">Issue Severity</div>
-        """, unsafe_allow_html=True)
-        st.plotly_chart(
-            _make_donut_chart(n_critical, n_high, n_medium),
-            use_container_width=True,
-            config={"displayModeBar": False},
-        )
-        st.markdown("</div>", unsafe_allow_html=True)
+    # ── Row 2: Top Issues | Quick Win ─────────────────────────────────────────
+    col_issues, col_quickwin = st.columns([1.5, 1], gap="small")
 
-    with col_issuelabel:
+    with col_issues:
         st.markdown(f"""
         <div style="background:#0D1117;border:1px solid #30363D;border-top:none;
-                    border-left:none;padding:16px 20px 16px">
+                    border-right:none;padding:16px 20px 16px">
           <div class="dq-panel-hdr">Top Issues Detected</div>
           {issue_html}
         </div>
         """, unsafe_allow_html=True)
 
+    with col_quickwin:
+        st.markdown("""
+        <div style="background:#0D1117;border:1px solid #30363D;border-top:none;
+                    border-left:none;padding:16px 20px 16px">
+          <div class="dq-panel-hdr">Highest Impact Fix</div>
+        """, unsafe_allow_html=True)
+        st.markdown(_quick_win_html(R), unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── Column Health ─────────────────────────────────────────────────────────
+    st.markdown(f"""
+    <div style="background:#0D1117;border:1px solid #30363D;border-top:none;
+                padding:20px 24px 20px">
+      <div class="dq-panel-hdr">Column Health — Completeness by Field</div>
+      <div style="font-size:11px;color:#484F58;margin-bottom:16px">
+        % of rows with a value (not null) per column ·
+        <span style="color:#3FB950">●</span> ≥95% &nbsp;
+        <span style="color:#E3B341">●</span> 80–94% &nbsp;
+        <span style="color:#F85149">●</span> &lt;80%
+      </div>
+      {_column_health_html(R["dfs"])}
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Data Preview ─────────────────────────────────────────────────────────
+    st.markdown(f"""
+    <div style="background:#0D1117;border:1px solid #30363D;border-top:none;
+                padding:20px 24px 20px">
+      <div class="dq-panel-hdr">Data Preview — First 5 Rows per File</div>
+      <div style="font-size:11px;color:#484F58;margin-bottom:16px">
+        Orange highlighted cells = missing values (null) · up to 8 columns shown
+      </div>
+      {_df_preview_html(R["dfs"])}
+    </div>
+    """, unsafe_allow_html=True)
+
     # ── CTA footer ────────────────────────────────────────────────────────────
     st.markdown(f"""
     <div style="background:#161B22;border:1px solid #30363D;border-top:none;
                 border-radius:0 0 16px 16px;padding:16px 28px;
-                display:flex;align-items:center;justify-content:space-between">
+                display:flex;align-items:center;justify-content:space-between;
+                flex-wrap:wrap;gap:8px">
       <div style="font-size:13px;color:#8B949E">
-        Full remediation plan: SQL fix queries · root cause · prevention rules
+        Full remediation plan: SQL fix queries · root cause analysis · prevention rules
       </div>
-      <div style="display:flex;gap:8px;align-items:center">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <div style="background:#21262D;border:1px solid #30363D;border-radius:6px;
                     padding:6px 14px;font-size:11px;color:#C9D1D9;font-weight:600">
           {n_fixes} fix{'es' if n_fixes != 1 else ''} ready
         </div>
         {"<div style='background:#3d0f0f;border:1px solid #F85149;border-radius:6px;padding:6px 14px;font-size:11px;color:#F85149;font-weight:600'>" + str(n_critical_fixes) + " critical</div>" if n_critical_fixes else ""}
-        <div style="font-size:11px;color:#484F58">↓ scroll to unlock</div>
+        <div style="font-size:11px;color:#484F58">↓ scroll to unlock full plan</div>
       </div>
     </div>
     """, unsafe_allow_html=True)
+
+    # ── Share with IT ─────────────────────────────────────────────────────────
+    _, share_col, _ = st.columns([2, 2, 2])
+    with share_col:
+        st.download_button(
+            label="📤  Share with IT Team",
+            data=_generate_it_report(R),
+            file_name=f"data_quality_report_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+            mime="text/plain",
+            use_container_width=True,
+            help="Download a plain-text summary to share with your data / IT team",
+        )
 
 
 def render_simple_findings(R: dict, light: bool = False):
