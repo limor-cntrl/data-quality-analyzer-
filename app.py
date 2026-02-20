@@ -1975,13 +1975,32 @@ def run_analysis(uploaded_files, cfg=None) -> tuple:
 # Simple-mode helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+_DIM_PLAIN = {
+    "completeness": ("Data Completeness",  "Are all fields filled in?"),
+    "uniqueness":   ("No Duplicate Records","Each record appears once?"),
+    "validity":     ("Data Validity",       "Values in the right format?"),
+    "consistency":  ("File Consistency",    "All files match each other?"),
+    "timeliness":   ("Data Freshness",      "Information up to date?"),
+}
+
+def _grade_meaning(grade: str) -> str:
+    return {
+        "A": "Excellent — your data is highly reliable for business decisions.",
+        "B": "Good — data is mostly reliable, minor issues to address.",
+        "C": "Fair — some reports may contain inaccuracies. Fix the issues below.",
+        "D": "Poor — significant quality problems. Reports based on this data carry real risk.",
+        "F": "Critical — this data needs cleanup before it can be trusted for any decision.",
+    }.get(grade, "")
+
 def _make_dim_bar_chart(scores: dict) -> go.Figure:
-    """Plotly horizontal bar chart for 5 quality dimensions."""
-    labels, vals, colors = [], [], []
-    for key, label, _ in DIMS:
+    """Plotly horizontal bar chart for 5 quality dimensions — plain-language labels."""
+    labels, hover_labels, vals, colors = [], [], [], []
+    for key, _, _ in DIMS:
         v = scores.get(key)
         if v is not None:
-            labels.append(label)
+            plain_name, plain_q = _DIM_PLAIN.get(key, (key.title(), ""))
+            labels.append(plain_name)
+            hover_labels.append(f"{plain_name}<br><i>{plain_q}</i>")
             vals.append(round(v, 1))
             colors.append(score_color(v))
 
@@ -1999,7 +2018,8 @@ def _make_dim_bar_chart(scores: dict) -> go.Figure:
         textposition="inside",
         insidetextanchor="start",
         textfont=dict(color="#E6EDF3", size=12, family="JetBrains Mono, monospace"),
-        hovertemplate="%{y}: %{x:.0f}/100<extra></extra>",
+        customdata=hover_labels,
+        hovertemplate="%{customdata}: %{x:.0f}/100<extra></extra>",
         showlegend=False,
     ))
     fig.update_layout(
@@ -2096,85 +2116,95 @@ def render_simple_dashboard(R: dict):
 
     # ── Dimension bars HTML ────────────────────────────────────────────────────
     dim_html = ""
-    for key, label, _ in DIMS:
+    for key, _, _ in DIMS:
+        plain_name, plain_q = _DIM_PLAIN.get(key, (key.title(), ""))
         val = scores.get(key)
         if val is None:
             dim_html += f"""
-            <div style="margin-bottom:13px">
-              <div style="display:flex;justify-content:space-between;margin-bottom:5px">
-                <span style="font-size:12px;font-weight:600;color:#C9D1D9">{label}</span>
-                <span style="font-size:12px;font-weight:700;color:#484F58;font-family:'JetBrains Mono',monospace">N/A</span>
+            <div style="margin-bottom:14px">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
+                <div>
+                  <span style="font-size:12px;font-weight:700;color:#6E7681">{plain_name}</span>
+                  <div style="font-size:10px;color:#484F58">{plain_q}</div>
+                </div>
+                <span style="font-size:12px;font-weight:700;color:#484F58;font-family:'JetBrains Mono',monospace;margin-top:2px">N/A</span>
               </div>
-              <div style="background:#21262D;border-radius:999px;height:8px"></div>
-              <div style="font-size:10px;color:#484F58;margin-top:3px">Single-file upload</div>
+              <div style="background:#21262D;border-radius:999px;height:7px"></div>
             </div>"""
             continue
         c  = score_color(val)
         ld, _ = score_label(val)
         dim_html += f"""
-        <div style="margin-bottom:13px">
-          <div style="display:flex;justify-content:space-between;margin-bottom:5px">
-            <span style="font-size:12px;font-weight:600;color:#C9D1D9">{label}</span>
-            <span style="font-size:12px;font-weight:700;color:{c};font-family:'JetBrains Mono',monospace">{val:.0f}</span>
+        <div style="margin-bottom:14px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
+            <div>
+              <span style="font-size:12px;font-weight:700;color:#C9D1D9">{plain_name}</span>
+              <div style="font-size:10px;color:#484F58;margin-top:1px">{plain_q}</div>
+            </div>
+            <span style="font-size:13px;font-weight:800;color:{c};font-family:'JetBrains Mono',monospace;margin-top:2px">{val:.0f}</span>
           </div>
-          <div style="background:#21262D;border-radius:999px;height:8px;overflow:hidden">
-            <div style="width:{val}%;background:linear-gradient(90deg,{c}88,{c});height:8px;border-radius:999px"></div>
+          <div style="background:#21262D;border-radius:999px;height:7px;overflow:hidden">
+            <div style="width:{val}%;background:linear-gradient(90deg,{c}88,{c});height:7px;border-radius:999px"></div>
           </div>
-          <div style="font-size:10px;color:#484F58;margin-top:3px">{ld}</div>
+          <div style="font-size:10px;color:#484F58;margin-top:2px">{ld}</div>
         </div>"""
 
-    # ── Issue cards HTML ───────────────────────────────────────────────────────
+    # ── Issue cards HTML — plain business language ────────────────────────────
+    def _issue_card(color, sev_label, icon, headline, body, impact_line):
+        return f"""
+        <div style="background:#0D1117;border:1px solid #30363D;border-left:4px solid {color};
+                    border-radius:10px;padding:16px 18px;margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <span style="font-size:16px">{icon}</span>
+            <span style="font-size:10px;font-weight:700;color:{color};text-transform:uppercase;
+                         letter-spacing:1.2px">{sev_label}</span>
+            <span style="font-size:12px;font-weight:700;color:#8B949E">· {headline}</span>
+          </div>
+          <div style="font-size:13px;color:#C9D1D9;line-height:1.7;margin-bottom:8px">{body}</div>
+          <div style="font-size:11px;color:#6E7681;background:#161B22;border-radius:6px;
+                      padding:6px 10px;display:inline-block">💡 {impact_line}</div>
+        </div>"""
+
     issue_html = ""
     for f in R["orphans"].get("findings", [])[:1]:
-        left = f["direction"].split("→")[0].strip()
-        ic = "#F85149" if f["pct_of_source"] > 25 else "#F0883E"
-        sev_lbl = "CRITICAL" if f["pct_of_source"] > 25 else "HIGH"
-        issue_html += f"""
-        <div style="background:#0D1117;border:1px solid #30363D;border-left:4px solid {ic};
-                    border-radius:8px;padding:14px 16px;margin-bottom:10px">
-          <div style="font-size:10px;font-weight:700;color:{ic};text-transform:uppercase;
-                      letter-spacing:1.2px;margin-bottom:6px">⚠ {sev_lbl} · Referential Integrity</div>
-          <div style="font-size:13px;color:#C9D1D9;line-height:1.6">
-            <strong style="color:#E6EDF3">{f['orphan_count']:,} rows</strong> in
-            <em style="color:#79C0FF">{left}</em> have no match in the linked file.
-            These records are invisible in every join, report, and aggregation.
-          </div>
-        </div>"""
+        left  = f["direction"].split("→")[0].strip()
+        right = f["direction"].split("→")[1].strip() if "→" in f["direction"] else "the other file"
+        ic    = "#F85149" if f["pct_of_source"] > 25 else "#F0883E"
+        sev   = "Critical Issue" if f["pct_of_source"] > 25 else "High Priority Issue"
+        issue_html += _issue_card(
+            ic, sev, "🔗", "Unmatched Records",
+            f"<strong style='color:#E6EDF3'>{f['orphan_count']:,} records</strong> in "
+            f"<em style='color:#79C0FF'>{left}</em> have no corresponding entry in "
+            f"<em style='color:#79C0FF'>{right}</em>.",
+            "These records won't appear in any of your reports, totals, or dashboards."
+        )
     for f in R["dupes"].get("findings", [])[:1]:
-        dc = "#F85149" if f["duplicate_count"] > 10 else "#F0883E"
-        sev_lbl = "CRITICAL" if f["duplicate_count"] > 10 else "HIGH"
-        issue_html += f"""
-        <div style="background:#0D1117;border:1px solid #30363D;border-left:4px solid {dc};
-                    border-radius:8px;padding:14px 16px;margin-bottom:10px">
-          <div style="font-size:10px;font-weight:700;color:{dc};text-transform:uppercase;
-                      letter-spacing:1.2px;margin-bottom:6px">⚠ {sev_lbl} · Duplicate Entries</div>
-          <div style="font-size:13px;color:#C9D1D9;line-height:1.6">
-            <em style="color:#79C0FF">{f['file']}</em> has
-            <strong style="color:#E6EDF3">{f['duplicate_count']} duplicate {f['type']}</strong> entries.
-            Every metric, count, and KPI built on this table is currently wrong.
-          </div>
-        </div>"""
+        dc  = "#F85149" if f["duplicate_count"] > 10 else "#F0883E"
+        sev = "Critical Issue" if f["duplicate_count"] > 10 else "High Priority Issue"
+        issue_html += _issue_card(
+            dc, sev, "👥", "Duplicate Records",
+            f"<em style='color:#79C0FF'>{f['file']}</em> contains "
+            f"<strong style='color:#E6EDF3'>{f['duplicate_count']} duplicate {f['type']}</strong> entries "
+            f"— the same real-world entity appears multiple times.",
+            "Your totals, counts, and averages are inflated by these duplicates."
+        )
     for f in R["gaps"].get("findings", [])[:1]:
         gc2 = "#F85149" if f["pct_of_upstream"] > 20 else "#E3B341"
-        sev_lbl = "HIGH" if f["pct_of_upstream"] > 5 else "MEDIUM"
-        issue_html += f"""
-        <div style="background:#0D1117;border:1px solid #30363D;border-left:4px solid {gc2};
-                    border-radius:8px;padding:14px 16px;margin-bottom:10px">
-          <div style="font-size:10px;font-weight:700;color:{gc2};text-transform:uppercase;
-                      letter-spacing:1.2px;margin-bottom:6px">⚠ {sev_lbl} · Pipeline Gap</div>
-          <div style="font-size:13px;color:#C9D1D9;line-height:1.6">
-            <strong style="color:#E6EDF3">{f['pct_of_upstream']}%</strong> of records enter
-            <em style="color:#79C0FF">{f['stage_from']}</em> but never reach
-            <em style="color:#79C0FF">{f['stage_to']}</em>. SLA violations and audit gaps.
-          </div>
-        </div>"""
+        sev = "High Priority Issue" if f["pct_of_upstream"] > 5 else "Medium Priority Issue"
+        issue_html += _issue_card(
+            gc2, sev, "⚡", "Incomplete Records",
+            f"<strong style='color:#E6EDF3'>{f['pct_of_upstream']}% of records</strong> "
+            f"start at <em style='color:#79C0FF'>{f['stage_from']}</em> but never "
+            f"reach <em style='color:#79C0FF'>{f['stage_to']}</em>.",
+            "These records are invisible in your downstream reports and completions tracking."
+        )
     if not issue_html:
         issue_html = """
-        <div style="background:#0D1117;border:1px solid #238636;border-radius:8px;
+        <div style="background:#0A160A;border:1px solid #238636;border-radius:10px;
                     padding:20px;text-align:center">
-          <div style="font-size:28px;margin-bottom:8px">✓</div>
-          <div style="font-size:14px;font-weight:700;color:#3FB950">No critical issues found</div>
-          <div style="font-size:12px;color:#6E7681;margin-top:4px">Your data relationships look clean.</div>
+          <div style="font-size:28px;margin-bottom:8px">✅</div>
+          <div style="font-size:14px;font-weight:700;color:#3FB950">No data integrity issues found</div>
+          <div style="font-size:12px;color:#6E7681;margin-top:4px">Your records match correctly across all files.</div>
         </div>"""
 
     # ── Impact block ───────────────────────────────────────────────────────────
@@ -2274,14 +2304,25 @@ def render_simple_dashboard(R: dict):
             use_container_width=True,
             config={"displayModeBar": False},
         )
+        grade_meaning = _grade_meaning(grade)
         st.markdown(f"""
-          <div style="text-align:center;padding:0 12px 16px;margin-top:-20px">
-            <div style="font-size:18px;font-weight:800;color:{gc}">{lbl}</div>
-            <div style="display:inline-block;background:#161B22;border:1px solid #30363D;
-                        border-radius:999px;padding:3px 12px;font-size:10px;
-                        color:#8B949E;margin-top:6px">{bench}</div>
-            <div style="font-size:12px;color:#8B949E;margin-top:10px;line-height:1.6;
-                        text-align:left">{urgency}</div>
+          <div style="padding:0 14px 20px;margin-top:-16px">
+            <div style="text-align:center;margin-bottom:12px">
+              <div style="font-size:20px;font-weight:800;color:{gc}">{lbl}</div>
+              <div style="display:inline-block;background:#161B22;border:1px solid #30363D;
+                          border-radius:999px;padding:3px 12px;font-size:10px;
+                          color:#8B949E;margin-top:6px">{bench}</div>
+            </div>
+            <div style="background:#161B22;border:1px solid #21262D;border-radius:8px;
+                        padding:12px 14px">
+              <div style="font-size:9px;font-weight:700;text-transform:uppercase;
+                          letter-spacing:1.5px;color:#484F58;margin-bottom:5px">
+                What this means
+              </div>
+              <div style="font-size:12px;color:#C9D1D9;line-height:1.6">
+                {grade_meaning}
+              </div>
+            </div>
           </div>
         </div>
         """, unsafe_allow_html=True)
@@ -2290,16 +2331,18 @@ def render_simple_dashboard(R: dict):
         st.markdown("""
         <div style="background:#0D1117;border:1px solid #30363D;border-top:none;
                     border-left:none;border-right:none;padding:20px 16px 4px">
-          <div class="dq-panel-hdr">Score by Dimension</div>
+          <div class="dq-panel-hdr">Quality Score Breakdown</div>
+          <div style="font-size:11px;color:#484F58;margin-bottom:8px">
+            5 dimensions · scored 0–100 · hover for details
+          </div>
         """, unsafe_allow_html=True)
         st.plotly_chart(
             _make_dim_bar_chart(scores),
             use_container_width=True,
             config={"displayModeBar": False},
         )
-        # Score scale legend
         st.markdown("""
-          <div style="display:flex;gap:10px;padding:0 4px 16px;flex-wrap:wrap">
+          <div style="display:flex;gap:12px;padding:0 4px 16px;flex-wrap:wrap">
             <span style="font-size:10px;color:#F85149">● &lt;50 Critical</span>
             <span style="font-size:10px;color:#F0883E">● 50–64 Poor</span>
             <span style="font-size:10px;color:#E3B341">● 65–74 Fair</span>
@@ -2466,11 +2509,11 @@ def main():
         <div class="hero-eyebrow">🔬 Free Data Health Check</div>
         <span class="spc">✓ 3,400+ reports generated</span>
       </div>
-      <h1>Your data is costing<br>you money.<br><span>Find out how much.</span></h1>
+      <h1>Get an instant quality<br>score for your data.</h1>
       <p class="hero-sub">
-        Upload your spreadsheet. In 30 seconds you'll know exactly what's broken,
-        how serious it is, and how to fix it — in plain English.
-        No technical knowledge needed.
+        Upload your spreadsheet and find out how reliable your data actually is.
+        You'll get a quality score across 5 dimensions, every issue explained in plain English,
+        and the business impact of each problem.
       </p>
 
       <div class="step-flow">
