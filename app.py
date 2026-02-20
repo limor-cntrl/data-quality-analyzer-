@@ -2502,7 +2502,7 @@ def render_simple_dashboard(R: dict):
         st.markdown(f"""
         <div style="background:#0D1117;border:1px solid #30363D;border-top:none;
                     border-right:none;padding:20px 16px 4px">
-          <div class="dq-panel-hdr">Overall Score</div>
+          <div style="font-size:13px;font-weight:700;color:#C9D1D9;margin-bottom:12px">Your Data Grade</div>
         """, unsafe_allow_html=True)
         st.plotly_chart(
             make_speedometer(overall),
@@ -2536,9 +2536,9 @@ def render_simple_dashboard(R: dict):
         st.markdown("""
         <div style="background:#0D1117;border:1px solid #30363D;border-top:none;
                     border-left:none;border-right:none;padding:20px 16px 4px">
-          <div class="dq-panel-hdr">Quality Score Breakdown</div>
-          <div style="font-size:11px;color:#484F58;margin-bottom:8px">
-            5 dimensions · scored 0–100 · hover for details
+          <div style="font-size:13px;font-weight:700;color:#C9D1D9;margin-bottom:6px">What's hurting your data?</div>
+          <div style="font-size:12px;color:#6E7681;margin-bottom:8px">
+            We checked 5 areas — hover to learn more
           </div>
         """, unsafe_allow_html=True)
         st.plotly_chart(
@@ -2561,7 +2561,7 @@ def render_simple_dashboard(R: dict):
         st.markdown(f"""
         <div style="background:#0D1117;border:1px solid #30363D;border-top:none;
                     border-left:none;padding:20px 16px 16px">
-          <div class="dq-panel-hdr">Rows Affected by Issue Type</div>
+          <div style="font-size:13px;font-weight:700;color:#C9D1D9;margin-bottom:12px">Where are the gaps?</div>
           {_rate_card("Unmatched Records", orphan_pct, n_orphans, orphan_c)}
           {_rate_card("Duplicate Entries",  dupe_pct,   n_dupes,   dupe_c)}
           {_rate_card("Incomplete Records",  gap_pct,    n_gaps,    gap_c)}
@@ -2578,23 +2578,98 @@ def render_simple_dashboard(R: dict):
         </div>
         """, unsafe_allow_html=True)
 
-    # ── Row 2: Top Issues | Quick Win ─────────────────────────────────────────
-    col_issues, col_quickwin = st.columns([1.5, 1], gap="small")
+    # Row 2+ rendered separately via render_simple_detail_panel()
 
+
+def render_simple_detail_panel(R: dict):
+    """Issues + quick win + column health + data preview + CTA + download.
+    Called only after the email gate is passed."""
+    scores  = R["score_data"]["scores"]
+    n_orphans  = sum(f["orphan_count"]    for f in R["orphans"].get("findings", []))
+    n_dupes    = sum(f["duplicate_count"] for f in R["dupes"].get("findings", []))
+    n_gaps     = sum(f["missing_count"]   for f in R["gaps"].get("findings", []))
+    n_fixes          = len(R["recs"])
+    n_critical_fixes = sum(1 for r in R["recs"] if r["severity"] == "critical")
+
+    # ── Issue cards ────────────────────────────────────────────────────────────
+    def _issue_card(color, sev_label, icon, headline, body, impact_line):
+        return f"""
+        <div style="background:#0D1117;border:1px solid #30363D;border-left:4px solid {color};
+                    border-radius:10px;padding:16px 18px;margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <span style="font-size:16px">{icon}</span>
+            <span style="font-size:10px;font-weight:700;color:{color};text-transform:uppercase;
+                         letter-spacing:1.2px">{sev_label}</span>
+            <span style="font-size:12px;font-weight:700;color:#8B949E">· {headline}</span>
+          </div>
+          <div style="font-size:13px;color:#C9D1D9;line-height:1.7;margin-bottom:8px">{body}</div>
+          <div style="font-size:11px;color:#6E7681;background:#161B22;border-radius:6px;
+                      padding:6px 10px;display:inline-block">💡 {impact_line}</div>
+        </div>"""
+
+    issue_html = ""
+    for f in R["orphans"].get("findings", [])[:1]:
+        left  = f["direction"].split("→")[0].strip()
+        right = f["direction"].split("→")[1].strip() if "→" in f["direction"] else "the other file"
+        ic    = "#F85149" if f["pct_of_source"] > 25 else "#F0883E"
+        sev   = "Critical" if f["pct_of_source"] > 25 else "High Priority"
+        issue_html += _issue_card(
+            ic, sev, "🔗", "Unmatched Records",
+            f"<strong style='color:#E6EDF3'>{f['orphan_count']:,} records</strong> in "
+            f"<em style='color:#79C0FF'>{left}</em> have no match in "
+            f"<em style='color:#79C0FF'>{right}</em>.",
+            "These rows won't appear in any of your reports or totals."
+        )
+    for f in R["dupes"].get("findings", [])[:1]:
+        dc  = "#F85149" if f["duplicate_count"] > 10 else "#F0883E"
+        sev = "Critical" if f["duplicate_count"] > 10 else "High Priority"
+        issue_html += _issue_card(
+            dc, sev, "👥", "Duplicate Records",
+            f"<em style='color:#79C0FF'>{f['file']}</em> has "
+            f"<strong style='color:#E6EDF3'>{f['duplicate_count']} duplicate {f['type']}</strong> "
+            f"entries — same entity appearing more than once.",
+            "Your totals and counts are inflated."
+        )
+    for f in R["gaps"].get("findings", [])[:1]:
+        gc2 = "#F85149" if f["pct_of_upstream"] > 20 else "#E3B341"
+        sev = "High Priority" if f["pct_of_upstream"] > 5 else "Medium"
+        issue_html += _issue_card(
+            gc2, sev, "⚡", "Missing Records",
+            f"<strong style='color:#E6EDF3'>{f['pct_of_upstream']}% of records</strong> "
+            f"start at <em style='color:#79C0FF'>{f['stage_from']}</em> but never reach "
+            f"<em style='color:#79C0FF'>{f['stage_to']}</em>.",
+            "These records are invisible in your downstream reports."
+        )
+    if not issue_html:
+        issue_html = """
+        <div style="background:#0A160A;border:1px solid #238636;border-radius:10px;
+                    padding:20px;text-align:center">
+          <div style="font-size:28px;margin-bottom:8px">✅</div>
+          <div style="font-size:14px;font-weight:700;color:#3FB950">No integrity issues found</div>
+          <div style="font-size:12px;color:#6E7681;margin-top:4px">
+            Your records match correctly across all files.
+          </div>
+        </div>"""
+
+    # ── Row 2: Issues | Quick Win ─────────────────────────────────────────────
+    col_issues, col_quickwin = st.columns([1.5, 1], gap="small")
     with col_issues:
         st.markdown(f"""
-        <div style="background:#0D1117;border:1px solid #30363D;border-top:none;
+        <div style="background:#0D1117;border:1px solid #30363D;
                     border-right:none;padding:16px 20px 16px">
-          <div class="dq-panel-hdr">Top Issues Detected</div>
+          <div style="font-size:13px;font-weight:700;color:#C9D1D9;margin-bottom:14px">
+            What we found in your data
+          </div>
           {issue_html}
         </div>
         """, unsafe_allow_html=True)
-
     with col_quickwin:
         st.markdown("""
-        <div style="background:#0D1117;border:1px solid #30363D;border-top:none;
+        <div style="background:#0D1117;border:1px solid #30363D;
                     border-left:none;padding:16px 20px 16px">
-          <div class="dq-panel-hdr">Highest Impact Fix</div>
+          <div style="font-size:13px;font-weight:700;color:#C9D1D9;margin-bottom:14px">
+            Fix this first
+          </div>
         """, unsafe_allow_html=True)
         st.markdown(_quick_win_html(R), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
@@ -2603,12 +2678,14 @@ def render_simple_dashboard(R: dict):
     st.markdown(f"""
     <div style="background:#0D1117;border:1px solid #30363D;border-top:none;
                 padding:20px 24px 20px">
-      <div class="dq-panel-hdr">Column Health — Completeness by Field</div>
-      <div style="font-size:11px;color:#484F58;margin-bottom:16px">
-        % of rows with a value (not null) per column ·
-        <span style="color:#3FB950">●</span> ≥95% &nbsp;
-        <span style="color:#E3B341">●</span> 80–94% &nbsp;
-        <span style="color:#F85149">●</span> &lt;80%
+      <div style="font-size:13px;font-weight:700;color:#C9D1D9;margin-bottom:6px">
+        Are all your fields filled in?
+      </div>
+      <div style="font-size:12px;color:#6E7681;margin-bottom:16px">
+        How complete each column is ·
+        <span style="color:#3FB950">●</span> Great (≥95%)&nbsp;
+        <span style="color:#E3B341">●</span> OK (80–94%)&nbsp;
+        <span style="color:#F85149">●</span> Problem (&lt;80%)
       </div>
       {_column_health_html(R["dfs"])}
     </div>
@@ -2618,35 +2695,36 @@ def render_simple_dashboard(R: dict):
     st.markdown(f"""
     <div style="background:#0D1117;border:1px solid #30363D;border-top:none;
                 padding:20px 24px 20px">
-      <div class="dq-panel-hdr">Data Preview — First 5 Rows per File</div>
-      <div style="font-size:11px;color:#484F58;margin-bottom:16px">
-        Orange highlighted cells = missing values (null) · up to 8 columns shown
+      <div style="font-size:13px;font-weight:700;color:#C9D1D9;margin-bottom:6px">
+        A sample of your actual data
+      </div>
+      <div style="font-size:12px;color:#6E7681;margin-bottom:16px">
+        First 5 rows per file · <span style="color:#F0883E">orange = missing value</span>
+        · up to 8 columns shown
       </div>
       {_df_preview_html(R["dfs"])}
     </div>
     """, unsafe_allow_html=True)
 
-    # ── CTA footer ────────────────────────────────────────────────────────────
+    # ── Footer ────────────────────────────────────────────────────────────────
     st.markdown(f"""
     <div style="background:#161B22;border:1px solid #30363D;border-top:none;
-                border-radius:0 0 16px 16px;padding:16px 28px;
+                border-radius:0 0 16px 16px;padding:14px 24px;
                 display:flex;align-items:center;justify-content:space-between;
                 flex-wrap:wrap;gap:8px">
-      <div style="font-size:13px;color:#8B949E">
-        Full remediation plan: SQL fix queries · root cause analysis · prevention rules
+      <div style="font-size:12px;color:#6E7681">
+        Step-by-step fix guide with SQL queries — scroll down to unlock
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <div style="background:#21262D;border:1px solid #30363D;border-radius:6px;
-                    padding:6px 14px;font-size:11px;color:#C9D1D9;font-weight:600">
+                    padding:5px 12px;font-size:11px;color:#C9D1D9;font-weight:600">
           {n_fixes} fix{'es' if n_fixes != 1 else ''} ready
         </div>
-        {"<div style='background:#3d0f0f;border:1px solid #F85149;border-radius:6px;padding:6px 14px;font-size:11px;color:#F85149;font-weight:600'>" + str(n_critical_fixes) + " critical</div>" if n_critical_fixes else ""}
-        <div style="font-size:11px;color:#484F58">↓ scroll to unlock full plan</div>
+        {"<div style='background:#3d0f0f;border:1px solid #F85149;border-radius:6px;padding:5px 12px;font-size:11px;color:#F85149;font-weight:600'>" + str(n_critical_fixes) + " critical</div>" if n_critical_fixes else ""}
       </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # ── Share with IT ─────────────────────────────────────────────────────────
     _, share_col, _ = st.columns([2, 2, 2])
     with share_col:
         st.download_button(
@@ -2675,46 +2753,9 @@ def _render_simple_impact(R: dict, light: bool = False):
 
 def main():
 
-    # ── MODE TOGGLE ───────────────────────────────────────────────────────────
+    # ── MODE ──────────────────────────────────────────────────────────────────
     if "mode" not in st.session_state:
         st.session_state["mode"] = "simple"
-
-    tog_l, tog_r, _ = st.columns([1, 1, 4])
-    with tog_l:
-        simple_active = st.session_state["mode"] == "simple"
-        border = "2px solid #3FB950" if simple_active else "1px solid #30363D"
-        label_color = "#3FB950" if simple_active else "#6E7681"
-        st.markdown(f"""
-        <div style="border:{border};background:#161B22;border-radius:8px;
-                    padding:10px 14px;text-align:center;margin-bottom:4px">
-          <div style="font-size:11px;font-weight:700;letter-spacing:1px;
-                      text-transform:uppercase;color:{label_color}">
-            {"● " if simple_active else "○ "}Standard
-          </div>
-          <div style="font-size:11px;color:#484F58;margin-top:3px">For everyone</div>
-        </div>""", unsafe_allow_html=True)
-        if st.button("Standard", key="btn_simple", use_container_width=True,
-                     type="primary" if simple_active else "secondary"):
-            st.session_state["mode"] = "simple"
-            st.rerun()
-    with tog_r:
-        adv_active = st.session_state["mode"] == "advanced"
-        border = "2px solid #58A6FF" if adv_active else "1px solid #30363D"
-        label_color = "#58A6FF" if adv_active else "#6E7681"
-        st.markdown(f"""
-        <div style="border:{border};background:#161B22;border-radius:8px;
-                    padding:10px 14px;text-align:center;margin-bottom:4px">
-          <div style="font-size:11px;font-weight:700;letter-spacing:1px;
-                      text-transform:uppercase;color:{label_color}">
-            {"● " if adv_active else "○ "}Expert
-          </div>
-          <div style="font-size:11px;color:#484F58;margin-top:3px">For data teams</div>
-        </div>""", unsafe_allow_html=True)
-        if st.button("Expert", key="btn_advanced", use_container_width=True,
-                     type="primary" if adv_active else "secondary"):
-            st.session_state["mode"] = "advanced"
-            st.rerun()
-
     simple = st.session_state["mode"] == "simple"
 
     # ── HERO ─────────────────────────────────────────────────────────────────
@@ -2965,8 +3006,115 @@ def main():
     recs = R["recs"]
 
     if simple:
-        # ── SIMPLE MODE: full BI dashboard ────────────────────────────────────
+        # ── SIMPLE MODE: score panel always visible ────────────────────────────
         render_simple_dashboard(R)
+
+        if not st.session_state.get("email_submitted"):
+            # ── COMPACT EMAIL GATE — shown right after score ───────────────────
+            overall  = R["score_data"]["scores"]["overall"]
+            grade, gc = overall_grade(overall)
+            n_issues = (
+                len(R["orphans"].get("findings", [])) +
+                len(R["dupes"].get("findings", [])) +
+                len(R["gaps"].get("findings", []))
+            )
+            n_crit = sum(1 for r in recs if r.get("severity") == "critical")
+            issues_txt = (
+                f"{n_issues} issue{'s' if n_issues != 1 else ''} found"
+                + (f" · {n_crit} critical" if n_crit else "")
+            ) if n_issues else "Your data is in good shape"
+
+            st.markdown(f"""
+            <div style="background:linear-gradient(135deg,#161B22,#0D1117);
+                        border:1px solid #30363D;border-radius:16px;
+                        padding:32px 36px;margin:24px 0 8px;
+                        animation:fadeUp 0.4s ease both">
+              <div style="text-align:center;margin-bottom:24px">
+                <div style="font-size:32px;font-weight:900;color:{gc};
+                            font-family:Inter,sans-serif;margin-bottom:6px">
+                  Your data scored {overall:.0f} out of 100
+                </div>
+                <div style="font-size:15px;color:#8B949E;margin-bottom:8px">
+                  {issues_txt}
+                </div>
+                <div style="font-size:13px;color:#484F58">
+                  Enter your email below to see exactly what's broken and how to fix it.
+                </div>
+              </div>
+              <div style="display:flex;justify-content:center;gap:24px;
+                          flex-wrap:wrap;margin-bottom:28px">
+                <div style="display:flex;align-items:center;gap:8px;
+                            font-size:13px;color:#6E7681">
+                  <span style="color:#3FB950;font-size:16px">✓</span>
+                  Plain-English explanation of every issue
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;
+                            font-size:13px;color:#6E7681">
+                  <span style="color:#3FB950;font-size:16px">✓</span>
+                  Which fix will help most (and by how much)
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;
+                            font-size:13px;color:#6E7681">
+                  <span style="color:#3FB950;font-size:16px">✓</span>
+                  Step-by-step guide to fix each problem
+                </div>
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            with st.form("lead_simple", clear_on_submit=False):
+                c1, c2, c3 = st.columns([2, 2, 1])
+                with c1:
+                    name  = st.text_input("Your name", placeholder="Jane Smith")
+                with c2:
+                    email = st.text_input("Work email", placeholder="jane@company.com")
+                with c3:
+                    st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+                    submitted = st.form_submit_button(
+                        "See My Full Report →", type="primary", use_container_width=True)
+
+                st.markdown(
+                    '<div style="font-size:11px;color:#484F58;margin-top:4px">'
+                    '🔒 No spam · No credit card · Unsubscribe anytime</div>',
+                    unsafe_allow_html=True)
+
+                if submitted:
+                    errs = []
+                    if not name.strip():
+                        errs.append("Please enter your name.")
+                    if not email.strip() or "@" not in email:
+                        errs.append("Please enter a valid email address.")
+                    if errs:
+                        for e in errs: st.error(e)
+                    else:
+                        save_lead(name.strip(), "", email.strip(), "")
+                        st.session_state.user_info = {
+                            "name": name.strip(), "email": email.strip(),
+                            "company": "", "role": ""}
+                        st.session_state.email_submitted = True
+                        st.rerun()
+            return
+
+        # ── Email already submitted — show detail panel ────────────────────────
+        uname = st.session_state.get("user_info", {}).get("name", "")
+        fname = uname.split()[0] if uname else "there"
+        st.markdown(f"""
+        <div style="background:linear-gradient(135deg,#0A160A,#0D1F0D);
+                    border:1px solid #238636;border-radius:14px;
+                    padding:16px 24px;margin:16px 0;
+                    display:flex;align-items:center;gap:16px;animation:fadeUp 0.4s ease both">
+          <div style="font-size:28px">🎉</div>
+          <div>
+            <div style="font-size:15px;font-weight:800;color:#3FB950;margin-bottom:2px">
+              Hey {fname}, here's your full report
+            </div>
+            <div style="font-size:12px;color:#6E7681">
+              Everything we found in your data — scroll down for the fix guide.
+            </div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+        render_simple_detail_panel(R)
 
     else:
         # ── ADVANCED MODE: score reveal first ─────────────────────────────────
@@ -3440,6 +3588,16 @@ DELETE FROM customers WHERE rn &gt; 1;</pre>
       🔒 Your data is processed locally and never stored on our servers
     </div>
     """, unsafe_allow_html=True)
+
+    # Expert mode access — small unobtrusive link at very bottom
+    if simple:
+        st.markdown("<div style='height:24px'></div>", unsafe_allow_html=True)
+        _, mid, _ = st.columns([3, 2, 3])
+        with mid:
+            if st.button("⚙️ Expert Mode (for data teams)", key="expert_link",
+                         type="secondary", use_container_width=True):
+                st.session_state["mode"] = "advanced"
+                st.rerun()
 
 
 if __name__ == "__main__":
