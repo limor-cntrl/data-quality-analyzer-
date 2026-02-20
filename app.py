@@ -1861,8 +1861,93 @@ def run_analysis(uploaded_files, cfg=None) -> tuple:
 # Simple-mode helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _make_dim_bar_chart(scores: dict) -> go.Figure:
+    """Plotly horizontal bar chart for 5 quality dimensions."""
+    labels, vals, colors = [], [], []
+    for key, label, _ in DIMS:
+        v = scores.get(key)
+        if v is not None:
+            labels.append(label)
+            vals.append(round(v, 1))
+            colors.append(score_color(v))
+
+    fig = go.Figure()
+    # Background track
+    fig.add_trace(go.Bar(
+        x=[100] * len(labels), y=labels, orientation="h",
+        marker=dict(color="#21262D"), hoverinfo="skip", showlegend=False,
+    ))
+    # Scored bars
+    fig.add_trace(go.Bar(
+        x=vals, y=labels, orientation="h",
+        marker=dict(color=colors, line=dict(width=0)),
+        text=[f" {v:.0f}" for v in vals],
+        textposition="inside",
+        insidetextanchor="start",
+        textfont=dict(color="#E6EDF3", size=12, family="JetBrains Mono, monospace"),
+        hovertemplate="%{y}: %{x:.0f}/100<extra></extra>",
+        showlegend=False,
+    ))
+    fig.update_layout(
+        barmode="overlay",
+        paper_bgcolor="#0D1117", plot_bgcolor="#0D1117",
+        margin=dict(l=0, r=24, t=4, b=4),
+        height=220,
+        xaxis=dict(range=[0, 100], showgrid=False, zeroline=False,
+                   showticklabels=False, fixedrange=True),
+        yaxis=dict(showgrid=False, zeroline=False, fixedrange=True, autorange="reversed",
+                   tickfont=dict(color="#C9D1D9", size=12, family="Inter, sans-serif")),
+        font=dict(family="Inter, sans-serif", color="#C9D1D9"),
+    )
+    return fig
+
+
+def _make_donut_chart(n_critical: int, n_high: int, n_medium: int) -> go.Figure:
+    """Small Plotly donut showing issue severity distribution."""
+    total = n_critical + n_high + n_medium
+    if total == 0:
+        labels = ["Clean"]
+        vals   = [1]
+        clrs   = ["#238636"]
+    else:
+        labels = ["Critical", "High", "Medium"]
+        vals   = [n_critical, n_high, n_medium]
+        clrs   = ["#F85149", "#F0883E", "#E3B341"]
+        labels = [l for l, v in zip(labels, vals) if v > 0]
+        clrs   = [c for c, v in zip(clrs, vals)   if v > 0]
+        vals   = [v for v in vals if v > 0]
+
+    fig = go.Figure(go.Pie(
+        labels=labels, values=vals,
+        hole=0.65,
+        marker=dict(colors=clrs, line=dict(color="#0D1117", width=2)),
+        textinfo="none",
+        hovertemplate="%{label}: %{value}<extra></extra>",
+    ))
+    center_text = f"{total}" if total > 0 else "✓"
+    center_sub  = "issues" if total > 0 else "clean"
+    fig.add_annotation(
+        text=f"<b>{center_text}</b><br><span style='font-size:9px'>{center_sub}</span>",
+        x=0.5, y=0.5, showarrow=False,
+        font=dict(size=18, color="#E6EDF3", family="JetBrains Mono, monospace"),
+        align="center",
+    )
+    fig.update_layout(
+        paper_bgcolor="#0D1117", plot_bgcolor="#0D1117",
+        margin=dict(l=0, r=0, t=4, b=4),
+        height=180,
+        showlegend=True,
+        legend=dict(
+            orientation="v", x=1.05, y=0.5,
+            font=dict(size=10, color="#8B949E"),
+            bgcolor="rgba(0,0,0,0)",
+        ),
+    )
+    return fig
+
+
 def render_simple_dashboard(R: dict):
-    """Full BI-style dashboard grid for Simple mode — mirrors professional ops-dashboard aesthetic."""
+    """Premium BI dashboard — Plotly gauge + dim bars + donut + issue cards."""
     scores  = R["score_data"]["scores"]
     details = R["score_data"]["details"]
     overall = scores["overall"]
@@ -2002,150 +2087,203 @@ def render_simple_dashboard(R: dict):
         </div>
         <div style="font-size:11px;color:#6E7681;margin-top:6px">rows with confirmed quality issues</div>"""
 
-    n_fixes    = len(R["recs"])
+    n_fixes          = len(R["recs"])
     n_critical_fixes = sum(1 for r in R["recs"] if r["severity"] == "critical")
-    today      = datetime.now().strftime("%b %d, %Y")
-
-    # ── Stat tiles ────────────────────────────────────────────────────────────
-    def stat_tile(val, label, color):
-        return (
-            f'<div style="background:#0D1117;border:1px solid #21262D;border-radius:8px;'
-            f'padding:16px 12px;text-align:center">'
-            f'<div style="font-size:26px;font-weight:900;color:{color};'
-            f'font-family:\'JetBrains Mono\',monospace;line-height:1">{val}</div>'
-            f'<div style="font-size:10px;color:#6E7681;margin-top:5px;font-weight:500">{label}</div>'
-            f'</div>'
-        )
-
+    today            = datetime.now().strftime("%b %d, %Y")
     orphan_c = "#F85149" if n_orphans > 0 else "#3FB950"
     dup_c    = "#F85149" if n_dupes   > 0 else "#3FB950"
     gap_c    = "#E3B341" if n_gaps    > 0 else "#3FB950"
 
-    tiles_html = (
-        f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
-        + stat_tile(f"{n_orphans:,}", "Orphan Records", orphan_c)
-        + stat_tile(str(n_dupes),     "Duplicates",     dup_c)
-        + stat_tile(f"{n_gaps:,}",    "Pipeline Gaps",  gap_c)
-        + stat_tile(f"{rows_total:,}","Rows Analyzed",  "#58A6FF")
-        + "</div>"
-    )
-
-    # ── Render full dashboard ─────────────────────────────────────────────────
+    # ── Dashboard header ──────────────────────────────────────────────────────
     st.markdown(f"""
-<div style="background:#0D1117;border:1px solid #30363D;border-radius:16px;
-            overflow:hidden;margin-bottom:28px;
-            box-shadow:0 8px 48px rgba(0,0,0,0.5)">
-
-  <!-- Header -->
-  <div style="background:#161B22;border-bottom:1px solid #21262D;
-              padding:18px 28px;display:flex;align-items:center;
-              justify-content:space-between">
-    <div>
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;
-                  letter-spacing:2px;color:#58A6FF;margin-bottom:4px">
-        🔬 Data Quality Report
-      </div>
-      <div style="font-size:15px;font-weight:700;color:#E6EDF3">{file_names}</div>
-    </div>
-    <div style="display:flex;align-items:center">
-      <span style="font-size:11px;color:#484F58;margin-right:12px">{today}</span>
-      {badge_html}
-    </div>
-  </div>
-
-  <!-- Row 1: Score | Dimensions | Stats -->
-  <div style="display:grid;grid-template-columns:1fr 1.5fr 1fr;gap:1px;
-              background:#21262D;border-bottom:1px solid #21262D">
-
-    <!-- Score panel -->
-    <div style="background:#0D1117;padding:24px 28px">
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;
-                  letter-spacing:1.5px;color:#484F58;margin-bottom:14px">
-        Overall Score
-      </div>
-      <div style="font-size:72px;font-weight:900;line-height:1;
-                  color:{gc};font-family:'JetBrains Mono',monospace;
-                  text-shadow:0 0 40px {gc}33">{overall:.0f}</div>
-      <div style="font-size:15px;font-weight:700;color:{gc};margin-top:6px">{lbl}</div>
-      <div style="display:inline-block;background:#161B22;border:1px solid #30363D;
-                  border-radius:999px;padding:3px 12px;font-size:11px;color:#8B949E;
-                  margin-top:10px">{bench}</div>
-      <div style="font-size:12px;color:#8B949E;margin-top:12px;line-height:1.6">{urgency}</div>
-      <div style="margin-top:18px">
-        <div style="display:flex;justify-content:space-between;margin-bottom:5px">
-          <span style="font-size:10px;color:#484F58">0</span>
-          <span style="font-size:10px;color:#484F58">100</span>
-        </div>
-        <div style="background:#21262D;border-radius:999px;height:10px;overflow:hidden">
-          <div style="width:{overall}%;background:linear-gradient(90deg,{gc}66,{gc});
-                      height:10px;border-radius:999px"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Dimensions panel -->
-    <div style="background:#0D1117;padding:24px 28px">
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;
-                  letter-spacing:1.5px;color:#484F58;margin-bottom:16px">
-        Score by Dimension
-      </div>
-      {dim_html}
-    </div>
-
-    <!-- Stats panel -->
-    <div style="background:#0D1117;padding:24px 28px">
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;
-                  letter-spacing:1.5px;color:#484F58;margin-bottom:14px">
-        Issue Summary
-      </div>
-      {tiles_html}
-      <div style="border-top:1px solid #21262D;margin-top:16px;padding-top:16px">
-        {impact_html}
-      </div>
-    </div>
-
-  </div>
-
-  <!-- Row 2: Issues | What's next -->
-  <div style="display:grid;grid-template-columns:1.6fr 1fr;gap:1px;background:#21262D">
-
-    <!-- Issues panel -->
-    <div style="background:#0D1117;padding:24px 28px">
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;
-                  letter-spacing:1.5px;color:#484F58;margin-bottom:16px">
-        Top Issues Detected
-      </div>
-      {issue_html}
-    </div>
-
-    <!-- CTA panel -->
-    <div style="background:#0D1117;padding:24px 28px;
-                display:flex;flex-direction:column;justify-content:space-between">
+    <style>
+    @keyframes scoreIn {{
+      from {{ opacity:0; transform:translateY(-6px); }}
+      to   {{ opacity:1; transform:translateY(0); }}
+    }}
+    .dq-dash-hdr {{
+      background:#161B22;
+      border:1px solid #30363D;
+      border-radius:16px 16px 0 0;
+      padding:16px 28px;
+      position:relative; overflow:hidden;
+      display:flex; align-items:center; justify-content:space-between;
+      margin-bottom:1px;
+    }}
+    .dq-dash-hdr::before {{
+      content:'';position:absolute;top:0;left:0;right:0;height:3px;
+      background:linear-gradient(90deg,{gc},{gc}88,#58A6FF55,transparent);
+    }}
+    .dq-panel-hdr {{
+      font-size:9px;font-weight:700;text-transform:uppercase;
+      letter-spacing:1.8px;color:#484F58;margin-bottom:12px;
+    }}
+    .dq-card {{
+      background:#161B22;border:1px solid #21262D;
+      border-radius:10px;padding:16px;
+    }}
+    .dq-stat-num {{
+      font-size:26px;font-weight:900;line-height:1;
+      font-family:'JetBrains Mono',monospace;
+    }}
+    .dq-stat-lbl {{
+      font-size:9px;color:#6E7681;margin-top:4px;
+      font-weight:600;text-transform:uppercase;letter-spacing:.5px;
+    }}
+    </style>
+    <div class="dq-dash-hdr">
       <div>
         <div style="font-size:10px;font-weight:700;text-transform:uppercase;
-                    letter-spacing:1.5px;color:#484F58;margin-bottom:14px">
-          Full Remediation Plan
+                    letter-spacing:2px;color:#58A6FF;margin-bottom:4px">
+          🔬 Data Quality Report
         </div>
-        <div style="font-size:13px;color:#8B949E;line-height:1.7;margin-bottom:16px">
-          Your report includes step-by-step SQL fix queries, root cause analysis,
-          and pipeline prevention rules for each issue found.
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <div style="background:#161B22;border:1px solid #30363D;border-radius:6px;
-                      padding:8px 14px;font-size:11px;color:#C9D1D9;font-weight:600">
-            {n_fixes} fix{'es' if n_fixes != 1 else ''} ready
-          </div>
-          {"<div style='background:#3d0f0f;border:1px solid #F85149;border-radius:6px;padding:8px 14px;font-size:11px;color:#F85149;font-weight:600'>" + str(n_critical_fixes) + " critical</div>" if n_critical_fixes else ""}
-        </div>
+        <div style="font-size:16px;font-weight:700;color:#E6EDF3">{file_names}</div>
       </div>
-      <div style="margin-top:20px;font-size:11px;color:#484F58;line-height:1.5">
-        ↓ Scroll down to unlock the full plan
+      <div style="display:flex;align-items:center">
+        <span style="font-size:11px;color:#484F58;margin-right:14px">{today}</span>
+        {badge_html}
       </div>
     </div>
+    """, unsafe_allow_html=True)
 
-  </div>
-</div>
-""", unsafe_allow_html=True)
+    # ── Row 1: Gauge | Dimension bars | Stats + Impact ────────────────────────
+    col_gauge, col_dims, col_stats = st.columns([1, 1.4, 1], gap="small")
+
+    with col_gauge:
+        st.markdown(f"""
+        <div style="background:#0D1117;border:1px solid #30363D;border-top:none;
+                    border-right:none;padding:20px 16px 4px">
+          <div class="dq-panel-hdr">Overall Score</div>
+        """, unsafe_allow_html=True)
+        st.plotly_chart(
+            make_speedometer(overall),
+            use_container_width=True,
+            config={"displayModeBar": False},
+        )
+        st.markdown(f"""
+          <div style="text-align:center;padding:0 12px 16px;margin-top:-20px">
+            <div style="font-size:18px;font-weight:800;color:{gc}">{lbl}</div>
+            <div style="display:inline-block;background:#161B22;border:1px solid #30363D;
+                        border-radius:999px;padding:3px 12px;font-size:10px;
+                        color:#8B949E;margin-top:6px">{bench}</div>
+            <div style="font-size:12px;color:#8B949E;margin-top:10px;line-height:1.6;
+                        text-align:left">{urgency}</div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col_dims:
+        st.markdown("""
+        <div style="background:#0D1117;border:1px solid #30363D;border-top:none;
+                    border-left:none;border-right:none;padding:20px 16px 4px">
+          <div class="dq-panel-hdr">Score by Dimension</div>
+        """, unsafe_allow_html=True)
+        st.plotly_chart(
+            _make_dim_bar_chart(scores),
+            use_container_width=True,
+            config={"displayModeBar": False},
+        )
+        # Score scale legend
+        st.markdown("""
+          <div style="display:flex;gap:10px;padding:0 4px 16px;flex-wrap:wrap">
+            <span style="font-size:10px;color:#F85149">● &lt;50 Critical</span>
+            <span style="font-size:10px;color:#F0883E">● 50–64 Poor</span>
+            <span style="font-size:10px;color:#E3B341">● 65–74 Fair</span>
+            <span style="font-size:10px;color:#56D364">● 75–84 Good</span>
+            <span style="font-size:10px;color:#3FB950">● 85+ Excellent</span>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col_stats:
+        # Donut + 4 stat tiles + impact
+        impact = R.get("impact", {})
+        if impact.get("has_monetary") and impact.get("total"):
+            at_risk_big   = f"~${impact['total']:,.0f}"
+            at_risk_sub   = f"avg txn ${impact['avg_value']:,.0f}"
+            at_risk_color = "#F85149"
+        else:
+            at_risk       = n_orphans + n_dupes + n_gaps
+            at_risk_big   = f"{at_risk:,}"
+            at_risk_sub   = "rows with issues"
+            at_risk_color = "#F0883E"
+
+        st.markdown(f"""
+        <div style="background:#0D1117;border:1px solid #30363D;border-top:none;
+                    border-left:none;padding:20px 16px 16px">
+          <div class="dq-panel-hdr">Issue Summary</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+            <div class="dq-card" style="text-align:center">
+              <div class="dq-stat-num" style="color:{orphan_c}">{n_orphans:,}</div>
+              <div class="dq-stat-lbl">Orphans</div>
+            </div>
+            <div class="dq-card" style="text-align:center">
+              <div class="dq-stat-num" style="color:{dup_c}">{n_dupes}</div>
+              <div class="dq-stat-lbl">Duplicates</div>
+            </div>
+            <div class="dq-card" style="text-align:center">
+              <div class="dq-stat-num" style="color:{gap_c}">{n_gaps:,}</div>
+              <div class="dq-stat-lbl">Gaps</div>
+            </div>
+            <div class="dq-card" style="text-align:center">
+              <div class="dq-stat-num" style="color:#58A6FF">{rows_total:,}</div>
+              <div class="dq-stat-lbl">Rows</div>
+            </div>
+          </div>
+          <div class="dq-card">
+            <div style="font-size:9px;font-weight:700;text-transform:uppercase;
+                        letter-spacing:1px;color:#484F58;margin-bottom:6px">At Risk</div>
+            <div style="font-size:32px;font-weight:900;color:{at_risk_color};
+                        font-family:'JetBrains Mono',monospace;line-height:1">
+              {at_risk_big}
+            </div>
+            <div style="font-size:10px;color:#6E7681;margin-top:5px">{at_risk_sub}</div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # ── Donut row (full width, compact) ───────────────────────────────────────
+    col_donut, col_issuelabel = st.columns([1, 2.4], gap="small")
+    with col_donut:
+        st.markdown("""
+        <div style="background:#0D1117;border:1px solid #30363D;border-top:none;
+                    border-right:none;padding:16px 16px 4px">
+          <div class="dq-panel-hdr">Issue Severity</div>
+        """, unsafe_allow_html=True)
+        st.plotly_chart(
+            _make_donut_chart(n_critical, n_high, n_medium),
+            use_container_width=True,
+            config={"displayModeBar": False},
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with col_issuelabel:
+        st.markdown(f"""
+        <div style="background:#0D1117;border:1px solid #30363D;border-top:none;
+                    border-left:none;padding:16px 20px 16px">
+          <div class="dq-panel-hdr">Top Issues Detected</div>
+          {issue_html}
+        </div>
+        """, unsafe_allow_html=True)
+
+    # ── CTA footer ────────────────────────────────────────────────────────────
+    st.markdown(f"""
+    <div style="background:#161B22;border:1px solid #30363D;border-top:none;
+                border-radius:0 0 16px 16px;padding:16px 28px;
+                display:flex;align-items:center;justify-content:space-between">
+      <div style="font-size:13px;color:#8B949E">
+        Full remediation plan: SQL fix queries · root cause · prevention rules
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <div style="background:#21262D;border:1px solid #30363D;border-radius:6px;
+                    padding:6px 14px;font-size:11px;color:#C9D1D9;font-weight:600">
+          {n_fixes} fix{'es' if n_fixes != 1 else ''} ready
+        </div>
+        {"<div style='background:#3d0f0f;border:1px solid #F85149;border-radius:6px;padding:6px 14px;font-size:11px;color:#F85149;font-weight:600'>" + str(n_critical_fixes) + " critical</div>" if n_critical_fixes else ""}
+        <div style="font-size:11px;color:#484F58">↓ scroll to unlock</div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 def render_simple_findings(R: dict, light: bool = False):
